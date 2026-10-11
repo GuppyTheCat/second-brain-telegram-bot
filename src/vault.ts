@@ -1,4 +1,4 @@
-import { access, mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises";
+import { access, link, mkdir, readdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { appendFrontmatterComment } from "./frontmatter-comment.js";
 
@@ -11,6 +11,7 @@ export type AppendCommentResult = "appended" | "unparsed";
 
 export interface VaultStore {
   createNote(filename: string, content: string): Promise<void>;
+  chooseNoteFilename(filename: string): Promise<string>;
   findBySource(source: string): Promise<ExistingNote | undefined>;
   appendComment(filename: string, comment: string): Promise<AppendCommentResult>;
   saveAttachment(directory: string, filename: string, bytes: Uint8Array): Promise<string>;
@@ -20,7 +21,10 @@ export function createVaultStore(root: string): VaultStore {
   return {
     async createNote(filename, content) {
       assertSegment(filename);
-      await atomicWrite(root, filename, content);
+      await exclusiveWrite(root, filename, content);
+    },
+    async chooseNoteFilename(filename) {
+      return freeNoteFilename(root, filename);
     },
     async findBySource(source) {
       const entries = await readdir(root, { withFileTypes: true });
@@ -60,6 +64,23 @@ function assertSegment(name: string): void {
   }
 }
 
+async function freeNoteFilename(root: string, filename: string): Promise<string> {
+  assertSegment(filename);
+  if (!filename.endsWith(".md")) throw new Error(`note filename must end with .md: ${filename}`);
+  const stem = filename.slice(0, -".md".length);
+  for (let attempt = 1; attempt <= 1000; attempt++) {
+    const candidate = attempt === 1 ? filename : `${stem} ${attempt}.md`;
+    assertSegment(candidate);
+    try {
+      await access(path.join(root, candidate));
+    } catch (error) {
+      if (isEnoent(error)) return candidate;
+      throw error;
+    }
+  }
+  throw new Error(`no free note name for ${filename}`);
+}
+
 async function chooseAttachmentName(root: string, directory: string, filename: string): Promise<string> {
   const folder = path.join(root, directory);
   const extension = path.extname(filename);
@@ -86,11 +107,29 @@ function isRootNote(name: string): boolean {
 
 async function atomicWrite(root: string, relativePath: string, data: string | Uint8Array): Promise<void> {
   const target = resolveInside(root, relativePath);
+  const temporary = await writeTemporary(target, data);
+  await rename(temporary, target);
+}
+
+// link fails with EEXIST instead of replacing a note that appeared after the name was chosen.
+async function exclusiveWrite(root: string, relativePath: string, data: string | Uint8Array): Promise<void> {
+  const target = resolveInside(root, relativePath);
+  const temporary = await writeTemporary(target, data);
+  try {
+    await link(temporary, target);
+  } catch (error) {
+    await unlink(temporary);
+    throw error;
+  }
+  await unlink(temporary);
+}
+
+async function writeTemporary(target: string, data: string | Uint8Array): Promise<string> {
   const directory = path.dirname(target);
   await mkdir(directory, { recursive: true });
   const temporary = path.join(directory, `.syncthing.${path.basename(target)}.tmp`);
   await writeFile(temporary, data);
-  await rename(temporary, target);
+  return temporary;
 }
 
 function readSource(content: string): string | undefined {

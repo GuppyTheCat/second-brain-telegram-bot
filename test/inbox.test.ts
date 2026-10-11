@@ -70,11 +70,11 @@ created: 2026-04-02
         }),
       );
 
-      const filename = "2026-04-01 13-00 Release: Notes.md";
+      const filename = "2026-04-01 13-00 Release Notes.md";
       expect(await readFile(path.join(harness.root, filename), "utf8")).toContain(
         'title: "Release: Notes"\n',
       );
-      expect(harness.replies).toEqual([{ chatId: 100, text: "2026-04-01 13-00 Release: Notes" }]);
+      expect(harness.replies).toEqual([{ chatId: 100, text: "2026-04-01 13-00 Release Notes" }]);
     } finally {
       await harness.cleanup();
     }

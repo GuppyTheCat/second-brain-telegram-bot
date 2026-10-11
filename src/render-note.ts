@@ -22,10 +22,14 @@ export interface RenderedClipping {
   source: string;
 }
 
+const MAX_FILENAME_BYTES = 200;
+const FILENAME_INVALID = /[\\/:*?"<>|#^\[\]\p{Cc}]/gu;
+
 export function renderClipping(input: ClippingInput): RenderedClipping {
   const published = formatZoned(input.publishedUnix, input.timezone);
   const created = formatZoned(input.createdUnix, input.timezone);
-  const noteName = `${published.date} ${published.hour}-${published.minute} ${input.title}`;
+  const prefix = `${published.date} ${published.hour}-${published.minute} `;
+  const noteName = `${prefix}${filenameChannel(prefix, input.title)}`;
   const username = input.username && input.username.length > 0 ? input.username : undefined;
   const telegram = username ? `[${username}](https://t.me/${username})` : input.title;
   const source = username
@@ -70,6 +74,39 @@ function formatComment(comment: string | undefined): string[] {
   if (comment === undefined) return [];
   if (!comment.includes("\n")) return [`comment: ${formatYamlScalar(comment)}`];
   return ["comment: |-", ...comment.split("\n").map((line) => `  ${line}`)];
+}
+
+function filenameChannel(prefix: string, title: string): string {
+  const budget = MAX_FILENAME_BYTES - utf8Length(prefix) - utf8Length(".md");
+  const capped = capUtf8(sanitizeChannelTitle(title), budget);
+  return capped.length === 0 ? "Telegram" : capped;
+}
+
+function sanitizeChannelTitle(title: string): string {
+  const cleaned = title
+    .replace(FILENAME_INVALID, " ")
+    .replace(/\s+/gu, " ")
+    .trim()
+    .replace(/[.\s]+$/u, "")
+    .trim();
+  return cleaned.length === 0 ? "Telegram" : cleaned;
+}
+
+function capUtf8(value: string, maxBytes: number): string {
+  if (maxBytes <= 0 || utf8Length(value) <= maxBytes) return maxBytes <= 0 ? "" : value;
+  let out = "";
+  let used = 0;
+  for (const char of value) {
+    const size = utf8Length(char);
+    if (used + size > maxBytes) break;
+    out += char;
+    used += size;
+  }
+  return out.replace(/[.\s]+$/u, "").trim();
+}
+
+function utf8Length(value: string): number {
+  return new TextEncoder().encode(value).length;
 }
 
 function privateChannelId(channelId: number): string {

@@ -238,22 +238,20 @@ export function createInbox(deps: InboxDependencies): Inbox {
       await deps.reply.reply(primary.chat.id, `уже сохранено: ${existing.noteName}, комментарий не добавлен`);
       return { type: "duplicate", noteName: existing.noteName, comment: "failed" };
     }
-    const downloaded = await downloadMedia(messages, draft.noteName, draft.source);
-    const rendered =
-      downloaded.lines.length === 0 ? draft : renderClipping({ ...input, mediaLines: downloaded.lines });
+    const filename = await deps.vault.chooseNoteFilename(draft.filename);
+    const noteName = filename.slice(0, -".md".length);
+    const downloaded = await downloadMedia(messages, noteName, draft.source);
+    const rendered = renderClipping({ ...input, mediaLines: downloaded.lines });
     try {
-      await deps.vault.createNote(rendered.filename, rendered.content);
+      await deps.vault.createNote(filename, rendered.content);
     } catch (error) {
       if (downloaded.savedAttachment) {
-        console.error(`note write failed after saving attachments: ${rendered.filename}`, error);
+        console.error(`note write failed after saving attachments: ${filename}`, error);
       }
       throw error;
     }
-    await deps.reply.reply(
-      primary.chat.id,
-      savedReply(rendered.noteName, downloaded.problems, downloaded.total),
-    );
-    return { type: "saved", noteName: rendered.noteName };
+    await deps.reply.reply(primary.chat.id, savedReply(noteName, downloaded.problems, downloaded.total));
+    return { type: "saved", noteName };
   }
 
   async function downloadMedia(
