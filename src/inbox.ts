@@ -21,7 +21,7 @@ export interface InboxDependencies {
 
 export type InboxOutcome =
   | { type: "saved"; noteName: string }
-  | { type: "duplicate"; noteName: string }
+  | { type: "duplicate"; noteName: string; comment?: "appended" | "failed" }
   | { type: "comment" }
   | { type: "unsupported" };
 
@@ -121,9 +121,23 @@ export function createInbox(deps: InboxDependencies): Inbox {
       });
       const existing = await deps.vault.findBySource(rendered.source);
       if (existing) {
-        // Attached for the window, but not written onto a duplicate yet.
-        await deps.reply.reply(message.chat.id, `уже сохранено: ${existing.noteName}`);
-        return { type: "duplicate", noteName: existing.noteName };
+        if (comment === undefined) {
+          await deps.reply.reply(message.chat.id, `уже сохранено: ${existing.noteName}`);
+          return { type: "duplicate", noteName: existing.noteName };
+        }
+        const appended = await deps.vault.appendComment(existing.filename, comment);
+        if (appended === "appended") {
+          await deps.reply.reply(
+            message.chat.id,
+            `уже сохранено: ${existing.noteName}, комментарий добавлен`,
+          );
+          return { type: "duplicate", noteName: existing.noteName, comment: "appended" };
+        }
+        await deps.reply.reply(
+          message.chat.id,
+          `уже сохранено: ${existing.noteName}, комментарий не добавлен`,
+        );
+        return { type: "duplicate", noteName: existing.noteName, comment: "failed" };
       }
       await deps.vault.createNote(rendered.filename, rendered.content);
       await deps.reply.reply(message.chat.id, rendered.noteName);

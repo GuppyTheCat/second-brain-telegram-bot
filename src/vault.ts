@@ -1,14 +1,18 @@
 import { readdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { appendFrontmatterComment } from "./frontmatter-comment.js";
 
 export interface ExistingNote {
   filename: string;
   noteName: string;
 }
 
+export type AppendCommentResult = "appended" | "unparsed";
+
 export interface VaultStore {
   createNote(filename: string, content: string): Promise<void>;
   findBySource(source: string): Promise<ExistingNote | undefined>;
+  appendComment(filename: string, comment: string): Promise<AppendCommentResult>;
 }
 
 export function createVaultStore(root: string): VaultStore {
@@ -29,6 +33,13 @@ export function createVaultStore(root: string): VaultStore {
         }
       }
       return undefined;
+    },
+    async appendComment(filename, comment) {
+      const content = await readFile(resolveInside(root, filename), "utf8");
+      const updated = appendFrontmatterComment(content, comment);
+      if (updated === undefined) return "unparsed";
+      await atomicWrite(root, filename, updated);
+      return "appended";
     },
   };
 }

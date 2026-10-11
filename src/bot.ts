@@ -14,6 +14,12 @@ export function createBot(config: Config, inbox: Inbox): Bot {
   bot.on("message", async (ctx) => {
     const outcome = await inbox.handle(ctx.message);
     if (outcome.type === "saved") console.log(`saved note: ${outcome.noteName}`);
+    if (outcome.type === "duplicate" && outcome.comment === "appended") {
+      console.log(`appended comment: ${outcome.noteName}`);
+    }
+    if (outcome.type === "duplicate" && outcome.comment === "failed") {
+      console.error(`comment not appended: ${outcome.noteName}`);
+    }
   });
 
   bot.catch((error) => {

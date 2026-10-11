@@ -4,11 +4,11 @@
 
 **Blocked by:** 02 (Deduplicate forwards by source), 03 (Comment sent with a forward)
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Duplicate forward + comment on a note without `comment` adds the property with the comment text
-- [ ] Duplicate forward + comment on a note that already has `comment` keeps the old text and adds the new comment on a new line
-- [ ] Other frontmatter properties, their order and the note body are byte-for-byte unchanged apart from `comment`
-- [ ] Works on notes created outside the bot (e.g. with `topics` or `author` filled manually)
-- [ ] The reply names the existing note and states that the comment was appended
-- [ ] A batch comment covering one new and one already-saved post creates the new note with `comment` and appends to the existing one
+- [x] Duplicate forward + comment on a note without `comment` adds the property with the comment text
+- [x] Duplicate forward + comment on a note that already has `comment` keeps the old text and adds the new comment on a new line
+- [x] Other frontmatter properties, their order and the note body are byte-for-byte unchanged apart from `comment`
+- [x] Works on notes created outside the bot (e.g. with `topics` or `author` filled manually)
+- [x] The reply names the existing note and states that the comment was appended
+- [x] A batch comment covering one new and one already-saved post creates the new note with `comment` and appends to the existing one
