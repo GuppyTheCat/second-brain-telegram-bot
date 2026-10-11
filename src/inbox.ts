@@ -19,7 +19,10 @@ export interface InboxDependencies {
   config: InboxConfig;
 }
 
-export type InboxOutcome = { type: "saved"; noteName: string } | { type: "unsupported" };
+export type InboxOutcome =
+  | { type: "saved"; noteName: string }
+  | { type: "duplicate"; noteName: string }
+  | { type: "unsupported" };
 
 export interface Inbox {
   handle(message: Message): Promise<InboxOutcome>;
@@ -61,6 +64,11 @@ export function createInbox(deps: InboxDependencies): Inbox {
       text: message.text ?? "",
       timezone: deps.config.timezone,
     });
+    const existing = await deps.vault.findBySource(rendered.source);
+    if (existing) {
+      await deps.reply.reply(message.chat.id, `уже сохранено: ${existing.noteName}`);
+      return { type: "duplicate", noteName: existing.noteName };
+    }
     await deps.vault.createNote(rendered.filename, rendered.content);
     await deps.reply.reply(message.chat.id, rendered.noteName);
     return { type: "saved", noteName: rendered.noteName };

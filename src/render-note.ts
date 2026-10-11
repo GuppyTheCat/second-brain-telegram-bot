@@ -15,6 +15,7 @@ export interface RenderedClipping {
   filename: string;
   noteName: string;
   content: string;
+  source: string;
 }
 
 export function renderClipping(input: ClippingInput): RenderedClipping {
@@ -45,6 +46,7 @@ export function renderClipping(input: ClippingInput): RenderedClipping {
     filename: `${noteName}.md`,
     noteName,
     content,
+    source,
   };
 }
 

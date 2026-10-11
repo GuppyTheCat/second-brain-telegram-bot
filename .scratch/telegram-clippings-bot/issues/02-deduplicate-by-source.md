@@ -4,10 +4,10 @@
 
 **Blocked by:** 01 (Tracer bullet — forwarded text post becomes a clipping note)
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Forwarding the same post twice leaves exactly one note in the vault
-- [ ] The second forward gets a reply saying the post is already saved, with the existing note's name
-- [ ] A clipping created outside the bot (e.g. an older note with the same `source`) is also detected as a duplicate
-- [ ] The existing note is not modified by a duplicate forward without a comment
-- [ ] Tests cover duplicate detection through the Inbox, including a pre-existing note seeded into the temp vault
+- [x] Forwarding the same post twice leaves exactly one note in the vault
+- [x] The second forward gets a reply saying the post is already saved, with the existing note's name
+- [x] A clipping created outside the bot (e.g. an older note with the same `source`) is also detected as a duplicate
+- [x] The existing note is not modified by a duplicate forward without a comment
+- [x] Tests cover duplicate detection through the Inbox, including a pre-existing note seeded into the temp vault
