@@ -22,6 +22,7 @@ export interface InboxDependencies {
 export type InboxOutcome =
   | { type: "saved"; noteName: string }
   | { type: "duplicate"; noteName: string }
+  | { type: "comment" }
   | { type: "unsupported" };
 
 export interface Inbox {
@@ -31,9 +32,20 @@ export interface Inbox {
 }
 
 const UNSUPPORTED = "не поддерживается";
+const COMMENT_WITHOUT_POST = "комментарий без поста — не сохранил";
+
+interface PendingComment {
+  text: string;
+  chatId: number;
+  attached: boolean;
+  generation: number;
+  timer: unknown;
+}
 
 export function createInbox(deps: InboxDependencies): Inbox {
   let tail: Promise<void> = Promise.resolve();
+  let pending: PendingComment | null = null;
+  let nextGeneration = 1;
 
   // Comment-window and album timers must enqueue through here and return that
   // promise from `clock.setTimeout`. ManualClock.advance and idle() then both
@@ -47,31 +59,83 @@ export function createInbox(deps: InboxDependencies): Inbox {
     return run;
   }
 
+  function armCommentWindow(): void {
+    if (!pending) return;
+    deps.clock.clearTimeout(pending.timer);
+    const generation = nextGeneration++;
+    pending.generation = generation;
+    pending.timer = deps.clock.setTimeout(() => {
+      return enqueue(() => expireComment(generation));
+    }, deps.config.commentWindowMs);
+  }
+
+  async function expireComment(generation: number): Promise<void> {
+    if (!pending || pending.generation !== generation) return;
+    const expired = pending;
+    pending = null;
+    if (!expired.attached) {
+      await deps.reply.reply(expired.chatId, COMMENT_WITHOUT_POST);
+    }
+  }
+
+  // Copies the open comment onto this post and restarts the window, so a
+  // batch stays covered. Album assembly should attach the same way when the
+  // group is saved, and keep the window alive while parts are still arriving.
+  function attachPendingComment(): string | undefined {
+    if (!pending) return undefined;
+    pending.attached = true;
+    armCommentWindow();
+    return pending.text;
+  }
+
+  async function acceptComment(message: Message): Promise<InboxOutcome> {
+    const previous = pending;
+    pending = {
+      text: message.text ?? "",
+      chatId: message.chat.id,
+      attached: false,
+      generation: 0,
+      timer: previous?.timer,
+    };
+    armCommentWindow();
+    if (previous && !previous.attached) {
+      await deps.reply.reply(previous.chatId, COMMENT_WITHOUT_POST);
+    }
+    return { type: "comment" };
+  }
+
   async function processMessage(message: Message): Promise<InboxOutcome> {
     const origin = message.forward_origin;
-    if (origin?.type !== "channel") {
-      await deps.reply.reply(message.chat.id, UNSUPPORTED);
-      return { type: "unsupported" };
+    if (origin?.type === "channel") {
+      const comment = attachPendingComment();
+      const rendered = renderClipping({
+        title: origin.chat.title,
+        username: origin.chat.username,
+        channelId: origin.chat.id,
+        postId: origin.message_id,
+        publishedUnix: origin.date,
+        createdUnix: message.date,
+        text: message.text ?? "",
+        timezone: deps.config.timezone,
+        comment,
+      });
+      const existing = await deps.vault.findBySource(rendered.source);
+      if (existing) {
+        // Attached for the window, but not written onto a duplicate yet.
+        await deps.reply.reply(message.chat.id, `уже сохранено: ${existing.noteName}`);
+        return { type: "duplicate", noteName: existing.noteName };
+      }
+      await deps.vault.createNote(rendered.filename, rendered.content);
+      await deps.reply.reply(message.chat.id, rendered.noteName);
+      return { type: "saved", noteName: rendered.noteName };
     }
 
-    const rendered = renderClipping({
-      title: origin.chat.title,
-      username: origin.chat.username,
-      channelId: origin.chat.id,
-      postId: origin.message_id,
-      publishedUnix: origin.date,
-      createdUnix: message.date,
-      text: message.text ?? "",
-      timezone: deps.config.timezone,
-    });
-    const existing = await deps.vault.findBySource(rendered.source);
-    if (existing) {
-      await deps.reply.reply(message.chat.id, `уже сохранено: ${existing.noteName}`);
-      return { type: "duplicate", noteName: existing.noteName };
+    if (origin === undefined && typeof message.text === "string") {
+      return acceptComment(message);
     }
-    await deps.vault.createNote(rendered.filename, rendered.content);
-    await deps.reply.reply(message.chat.id, rendered.noteName);
-    return { type: "saved", noteName: rendered.noteName };
+
+    await deps.reply.reply(message.chat.id, UNSUPPORTED);
+    return { type: "unsupported" };
   }
 
   return {

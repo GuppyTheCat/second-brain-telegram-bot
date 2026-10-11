@@ -11,12 +11,12 @@ Behaviour, per the spec's comment grouping rules:
 
 **Blocked by:** 01 (Tracer bullet — forwarded text post becomes a clipping note)
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] A comment followed by a forward produces a note whose `comment` holds the comment text
-- [ ] A multi-line comment is stored as a YAML block scalar and round-trips intact
-- [ ] One comment followed by several forwards (including from different channels) gives every resulting note the same `comment`
-- [ ] A comment with no forward within the window gets "комментарий без поста — не сохранил" and creates no file
-- [ ] A second comment sent before any forward replaces the first, and the first is reported as not saved
-- [ ] A forward without a preceding comment has no `comment` property at all
-- [ ] Tests drive the window with the fake clock, never with real sleeps
+- [x] A comment followed by a forward produces a note whose `comment` holds the comment text
+- [x] A multi-line comment is stored as a YAML block scalar and round-trips intact
+- [x] One comment followed by several forwards (including from different channels) gives every resulting note the same `comment`
+- [x] A comment with no forward within the window gets "комментарий без поста — не сохранил" and creates no file
+- [x] A second comment sent before any forward replaces the first, and the first is reported as not saved
+- [x] A forward without a preceding comment has no `comment` property at all
+- [x] Tests drive the window with the fake clock, never with real sleeps

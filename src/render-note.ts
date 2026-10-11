@@ -9,6 +9,7 @@ export interface ClippingInput {
   createdUnix: number;
   text: string;
   timezone: string;
+  comment?: string;
 }
 
 export interface RenderedClipping {
@@ -38,6 +39,7 @@ export function renderClipping(input: ClippingInput): RenderedClipping {
     `source: ${formatYamlScalar(source)}`,
     `published: ${published.date}`,
     `created: ${created.date}`,
+    ...formatComment(input.comment),
     "---",
     body,
   ].join("\n");
@@ -48,6 +50,12 @@ export function renderClipping(input: ClippingInput): RenderedClipping {
     content,
     source,
   };
+}
+
+function formatComment(comment: string | undefined): string[] {
+  if (comment === undefined) return [];
+  if (!comment.includes("\n")) return [`comment: ${formatYamlScalar(comment)}`];
+  return ["comment: |-", ...comment.split("\n").map((line) => `  ${line}`)];
 }
 
 function privateChannelId(channelId: number): string {
