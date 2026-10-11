@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { ManualClock } from "../src/clock.js";
-import { createInbox, type Inbox } from "../src/inbox.js";
+import { createInbox, type Inbox, type InboxOutcome } from "../src/inbox.js";
 import type { MediaFetcher, MediaFetchResult } from "../src/media.js";
 import { createVaultStore } from "../src/vault.js";
 
@@ -16,6 +16,7 @@ export interface Harness {
   inbox: Inbox;
   clock: ManualClock;
   replies: RecordedReply[];
+  outcomes: InboxOutcome[];
   cleanup: () => Promise<void>;
 }
 
@@ -38,6 +39,7 @@ export function scriptedMedia(byFileId: Record<string, MediaScript>): MediaFetch
 export async function createHarness(timezone = "Europe/Moscow", media?: MediaFetcher): Promise<Harness> {
   const root = await mkdtemp(path.join(tmpdir(), "sb-bot-"));
   const replies: RecordedReply[] = [];
+  const outcomes: InboxOutcome[] = [];
   const clock = new ManualClock();
   const fetcher: MediaFetcher = media ?? {
     async fetch() {
@@ -53,9 +55,13 @@ export async function createHarness(timezone = "Europe/Moscow", media?: MediaFet
       },
     },
     clock,
+    onOutcome(outcome) {
+      outcomes.push(outcome);
+    },
     config: {
       timezone,
       commentWindowMs: 3000,
+      albumWindowMs: 1500,
       attachmentsDir: "Attachments",
     },
   });
@@ -65,6 +71,7 @@ export async function createHarness(timezone = "Europe/Moscow", media?: MediaFet
     inbox,
     clock,
     replies,
+    outcomes,
     async cleanup() {
       await rm(root, { recursive: true, force: true });
     },

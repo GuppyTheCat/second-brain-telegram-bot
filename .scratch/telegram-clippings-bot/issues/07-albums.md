@@ -4,13 +4,13 @@
 
 **Blocked by:** 03 (Comment sent with a forward), 06 (Posts with a single media file)
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] An album of N media creates exactly one note with N embeds in original order
-- [ ] The caption is used as the note text no matter which part of the album carries it
-- [ ] An album without any caption produces a note with only the embeds
-- [ ] `source` points to the album's first message
-- [ ] A comment followed by an album gives the album's note the comment, without the album timing out the comment window
-- [ ] Some album media failing to download still creates the note, with "media not downloaded" lines for the failed items
-- [ ] Forwarding an already-saved album is detected as a duplicate (no new note, no downloads)
-- [ ] Tests drive album buffering with the fake clock
+- [x] An album of N media creates exactly one note with N embeds in original order
+- [x] The caption is used as the note text no matter which part of the album carries it
+- [x] An album without any caption produces a note with only the embeds
+- [x] `source` points to the album's first message
+- [x] A comment followed by an album gives the album's note the comment, without the album timing out the comment window
+- [x] Some album media failing to download still creates the note, with "media not downloaded" lines for the failed items
+- [x] Forwarding an already-saved album is detected as a duplicate (no new note, no downloads)
+- [x] Tests drive album buffering with the fake clock

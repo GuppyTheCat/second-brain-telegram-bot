@@ -15,6 +15,7 @@ Copy `.env.example` to `.env`.
 | `ATTACHMENTS_DIR` | no | `Attachments` | Attachments folder inside the vault |
 | `TIMEZONE` | no | `Europe/Moscow` | Publication times in filenames and dates |
 | `COMMENT_WINDOW_MS` | no | `3000` | How long a comment stays attached to following forwards |
+| `ALBUM_WINDOW_MS` | no | `1500` | How long to wait for more parts of the same album |
 
 ## Run locally
 

@@ -3,11 +3,13 @@ import type { Clock } from "./clock.js";
 import type { MediaFetcher, MediaFileRef } from "./media.js";
 import { renderClipping, type ClippingInput } from "./render-note.js";
 import type { ReplySink } from "./reply.js";
+import { telegramToMarkdown } from "./telegram-markdown.js";
 import type { VaultStore } from "./vault.js";
 
 export interface InboxConfig {
   timezone: string;
   commentWindowMs: number;
+  albumWindowMs: number;
   attachmentsDir: string;
 }
 
@@ -17,13 +19,16 @@ export interface InboxDependencies {
   reply: ReplySink;
   clock: Clock;
   config: InboxConfig;
+  /** Final album outcome. Immediate handle() results are not passed here. */
+  onOutcome?: (outcome: InboxOutcome) => void;
 }
 
 export type InboxOutcome =
   | { type: "saved"; noteName: string }
   | { type: "duplicate"; noteName: string; comment?: "appended" | "failed" }
   | { type: "comment" }
-  | { type: "unsupported" };
+  | { type: "unsupported" }
+  | { type: "buffered" };
 
 export interface Inbox {
   handle(message: Message): Promise<InboxOutcome>;
@@ -37,6 +42,22 @@ function postBody(message: Message): { text: string; entities?: Message["entitie
   return { text: "" };
 }
 
+function captionMarkdown(messages: readonly Message[]): string {
+  const chunks: string[] = [];
+  for (const message of messages) {
+    const body = postBody(message);
+    if (body.text.length === 0) continue;
+    chunks.push(telegramToMarkdown(body.text, body.entities));
+  }
+  return chunks.join("\n\n");
+}
+
+function channelMessageId(message: Message): number {
+  const origin = message.forward_origin;
+  if (origin?.type === "channel") return origin.message_id;
+  return Number.MAX_SAFE_INTEGER;
+}
+
 const UNSUPPORTED = "не поддерживается";
 const COMMENT_WITHOUT_POST = "комментарий без поста — не сохранил";
 
@@ -48,10 +69,24 @@ interface PendingComment {
   timer: unknown;
 }
 
+interface AlbumPart {
+  message: Message;
+  arrival: number;
+}
+
+interface OpenAlbum {
+  parts: AlbumPart[];
+  comment: string | undefined;
+  generation: number;
+  timer: unknown;
+}
+
 export function createInbox(deps: InboxDependencies): Inbox {
   let tail: Promise<void> = Promise.resolve();
   let pending: PendingComment | null = null;
   let nextGeneration = 1;
+  let nextArrival = 0;
+  const albums = new Map<string, OpenAlbum>();
 
   // Comment-window and album timers must enqueue through here and return that
   // promise from `clock.setTimeout`. ManualClock.advance and idle() then both
@@ -85,13 +120,18 @@ export function createInbox(deps: InboxDependencies): Inbox {
   }
 
   // Copies the open comment onto this post and restarts the window, so a
-  // batch stays covered. Album assembly should attach the same way when the
-  // group is saved, and keep the window alive while parts are still arriving.
+  // batch stays covered. An album captures it on the first part; later parts
+  // only keep that attached window from expiring while the group is open.
   function attachPendingComment(): string | undefined {
     if (!pending) return undefined;
     pending.attached = true;
     armCommentWindow();
     return pending.text;
+  }
+
+  function extendAttachedComment(): void {
+    if (!pending?.attached) return;
+    armCommentWindow();
   }
 
   async function acceptComment(message: Message): Promise<InboxOutcome> {
@@ -113,54 +153,8 @@ export function createInbox(deps: InboxDependencies): Inbox {
   async function processMessage(message: Message): Promise<InboxOutcome> {
     const origin = message.forward_origin;
     if (origin?.type === "channel") {
-      const comment = attachPendingComment();
-      const body = postBody(message);
-      const input: ClippingInput = {
-        title: origin.chat.title,
-        username: origin.chat.username,
-        channelId: origin.chat.id,
-        postId: origin.message_id,
-        publishedUnix: origin.date,
-        createdUnix: message.date,
-        text: body.text,
-        entities: body.entities,
-        timezone: deps.config.timezone,
-        comment,
-      };
-      const draft = renderClipping(input);
-      const existing = await deps.vault.findBySource(draft.source);
-      if (existing) {
-        if (comment === undefined) {
-          await deps.reply.reply(message.chat.id, `уже сохранено: ${existing.noteName}`);
-          return { type: "duplicate", noteName: existing.noteName };
-        }
-        const appended = await deps.vault.appendComment(existing.filename, comment);
-        if (appended === "appended") {
-          await deps.reply.reply(
-            message.chat.id,
-            `уже сохранено: ${existing.noteName}, комментарий добавлен`,
-          );
-          return { type: "duplicate", noteName: existing.noteName, comment: "appended" };
-        }
-        await deps.reply.reply(
-          message.chat.id,
-          `уже сохранено: ${existing.noteName}, комментарий не добавлен`,
-        );
-        return { type: "duplicate", noteName: existing.noteName, comment: "failed" };
-      }
-      const downloaded = await downloadMedia(message, draft.noteName, draft.source);
-      const rendered =
-        downloaded.lines.length === 0 ? draft : renderClipping({ ...input, mediaLines: downloaded.lines });
-      try {
-        await deps.vault.createNote(rendered.filename, rendered.content);
-      } catch (error) {
-        if (downloaded.savedAttachment) {
-          console.error(`note write failed after saving attachments: ${rendered.filename}`, error);
-        }
-        throw error;
-      }
-      await deps.reply.reply(message.chat.id, savedReply(rendered.noteName, downloaded.problems, downloaded.total));
-      return { type: "saved", noteName: rendered.noteName };
+      if (message.media_group_id) return bufferAlbum(message);
+      return saveChannelMessages([message], attachPendingComment());
     }
 
     if (origin === undefined && typeof message.text === "string") {
@@ -171,12 +165,103 @@ export function createInbox(deps: InboxDependencies): Inbox {
     return { type: "unsupported" };
   }
 
+  function bufferAlbum(message: Message): InboxOutcome {
+    const groupId = message.media_group_id ?? "";
+    const key = `${message.chat.id}:${groupId}`;
+    let album = albums.get(key);
+    if (!album) {
+      album = {
+        parts: [],
+        comment: attachPendingComment(),
+        generation: 0,
+        timer: undefined,
+      };
+      albums.set(key, album);
+    } else {
+      extendAttachedComment();
+    }
+    album.parts.push({ message, arrival: nextArrival++ });
+    const generation = nextGeneration++;
+    album.generation = generation;
+    deps.clock.clearTimeout(album.timer);
+    album.timer = deps.clock.setTimeout(() => {
+      return enqueue(() => flushAlbum(key, generation));
+    }, deps.config.albumWindowMs);
+    return { type: "buffered" };
+  }
+
+  async function flushAlbum(key: string, generation: number): Promise<void> {
+    const album = albums.get(key);
+    if (!album || album.generation !== generation) return;
+    albums.delete(key);
+    const messages = [...album.parts]
+      .sort((a, b) => channelMessageId(a.message) - channelMessageId(b.message) || a.arrival - b.arrival)
+      .map((part) => part.message);
+    const outcome = await saveChannelMessages(messages, album.comment);
+    deps.onOutcome?.(outcome);
+  }
+
+  async function saveChannelMessages(
+    messages: readonly Message[],
+    comment: string | undefined,
+  ): Promise<InboxOutcome> {
+    const primary = messages[0];
+    if (!primary) throw new Error("album has no parts");
+    const origin = primary.forward_origin;
+    if (origin?.type !== "channel") {
+      await deps.reply.reply(primary.chat.id, UNSUPPORTED);
+      return { type: "unsupported" };
+    }
+    const input: ClippingInput = {
+      title: origin.chat.title,
+      username: origin.chat.username,
+      channelId: origin.chat.id,
+      postId: origin.message_id,
+      publishedUnix: origin.date,
+      createdUnix: primary.date,
+      text: captionMarkdown(messages),
+      timezone: deps.config.timezone,
+      comment,
+    };
+    const draft = renderClipping(input);
+    const existing = await deps.vault.findBySource(draft.source);
+    if (existing) {
+      if (comment === undefined) {
+        await deps.reply.reply(primary.chat.id, `уже сохранено: ${existing.noteName}`);
+        return { type: "duplicate", noteName: existing.noteName };
+      }
+      const appended = await deps.vault.appendComment(existing.filename, comment);
+      if (appended === "appended") {
+        await deps.reply.reply(primary.chat.id, `уже сохранено: ${existing.noteName}, комментарий добавлен`);
+        return { type: "duplicate", noteName: existing.noteName, comment: "appended" };
+      }
+      await deps.reply.reply(primary.chat.id, `уже сохранено: ${existing.noteName}, комментарий не добавлен`);
+      return { type: "duplicate", noteName: existing.noteName, comment: "failed" };
+    }
+    const downloaded = await downloadMedia(messages, draft.noteName, draft.source);
+    const rendered =
+      downloaded.lines.length === 0 ? draft : renderClipping({ ...input, mediaLines: downloaded.lines });
+    try {
+      await deps.vault.createNote(rendered.filename, rendered.content);
+    } catch (error) {
+      if (downloaded.savedAttachment) {
+        console.error(`note write failed after saving attachments: ${rendered.filename}`, error);
+      }
+      throw error;
+    }
+    await deps.reply.reply(
+      primary.chat.id,
+      savedReply(rendered.noteName, downloaded.problems, downloaded.total),
+    );
+    return { type: "saved", noteName: rendered.noteName };
+  }
+
   async function downloadMedia(
-    message: Message,
+    messages: readonly Message[],
     noteName: string,
     source: string,
   ): Promise<{ lines: string[]; problems: MediaProblem[]; total: number; savedAttachment: boolean }> {
-    const media = extractMedia(message);
+    const media = messages.flatMap((message) => extractMedia(message));
     const lines: string[] = [];
     const problems: MediaProblem[] = [];
     let savedAttachment = false;

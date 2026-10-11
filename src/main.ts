@@ -1,4 +1,4 @@
-import { createBot, createProxyAgent } from "./bot.js";
+import { createBot, createProxyAgent, logInboxOutcome } from "./bot.js";
 import { systemClock } from "./clock.js";
 import { loadConfig } from "./config.js";
 import { createInbox } from "./inbox.js";
@@ -26,9 +26,11 @@ async function main(): Promise<void> {
       reply: (chatId, text) => sendReply(chatId, text),
     },
     clock: systemClock(),
+    onOutcome: logInboxOutcome,
     config: {
       timezone: config.timezone,
       commentWindowMs: config.commentWindowMs,
+      albumWindowMs: config.albumWindowMs,
       attachmentsDir: config.attachmentsDir,
     },
   });

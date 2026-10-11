@@ -79,6 +79,7 @@ I forward a channel post to the bot and a clipping note appears at the vault roo
 - Attachments folder name inside the vault (default `Attachments`).
 - Timezone (default `Europe/Moscow`).
 - Comment window in milliseconds (default around 3000).
+- Album window in milliseconds (default around 1500). Each new part of a media group restarts it.
 
 **Modules**
 
@@ -105,7 +106,7 @@ I forward a channel post to the bot and a clipping note appears at the vault roo
 
 **Album grouping**
 
-- Messages with the same media group ID are buffered briefly and treated as one post: one note, all media in order, text/caption taken from whichever part carries it. The post's link uses the first message ID of the group.
+- Messages from the same chat with the same media group ID are buffered for the album window (each new part restarts it) and saved as one post: one note, all media in `forward_origin.message_id` order, captions joined in that order with a blank line. The post's link and filename use the lowest message ID and its publication date. A pending comment is captured when the first part arrives, so the window does not reject it while parts are still buffered. A comment that arrives after the group has started belongs to later forwards.
 
 **Note format**
 

@@ -6,6 +6,7 @@ export interface Config {
   attachmentsDir: string;
   timezone: string;
   commentWindowMs: number;
+  albumWindowMs: number;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv): Config {
@@ -24,6 +25,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     attachmentsDir: optional(env, "ATTACHMENTS_DIR") ?? "Attachments",
     timezone,
     commentWindowMs: optionalInt(env, "COMMENT_WINDOW_MS", 3000),
+    albumWindowMs: optionalInt(env, "ALBUM_WINDOW_MS", 1500),
   };
 }
 
