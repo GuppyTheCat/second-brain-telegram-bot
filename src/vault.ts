@@ -1,4 +1,4 @@
-import { readdir, readFile, rename, writeFile } from "node:fs/promises";
+import { access, mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { appendFrontmatterComment } from "./frontmatter-comment.js";
 
@@ -13,11 +13,13 @@ export interface VaultStore {
   createNote(filename: string, content: string): Promise<void>;
   findBySource(source: string): Promise<ExistingNote | undefined>;
   appendComment(filename: string, comment: string): Promise<AppendCommentResult>;
+  saveAttachment(directory: string, filename: string, bytes: Uint8Array): Promise<string>;
 }
 
 export function createVaultStore(root: string): VaultStore {
   return {
     async createNote(filename, content) {
+      assertSegment(filename);
       await atomicWrite(root, filename, content);
     },
     async findBySource(source) {
@@ -35,22 +37,58 @@ export function createVaultStore(root: string): VaultStore {
       return undefined;
     },
     async appendComment(filename, comment) {
+      assertSegment(filename);
       const content = await readFile(resolveInside(root, filename), "utf8");
       const updated = appendFrontmatterComment(content, comment);
       if (updated === undefined) return "unparsed";
       await atomicWrite(root, filename, updated);
       return "appended";
     },
+    async saveAttachment(directory, filename, bytes) {
+      assertSegment(directory);
+      assertSegment(filename);
+      const chosen = await chooseAttachmentName(root, directory, filename);
+      await atomicWrite(root, path.join(directory, chosen), bytes);
+      return chosen;
+    },
   };
+}
+
+function assertSegment(name: string): void {
+  if (name.length === 0 || name === "." || name === ".." || name !== path.basename(name)) {
+    throw new Error(`filename must be a single path segment: ${name}`);
+  }
+}
+
+async function chooseAttachmentName(root: string, directory: string, filename: string): Promise<string> {
+  const folder = path.join(root, directory);
+  const extension = path.extname(filename);
+  const stem = filename.slice(0, filename.length - extension.length);
+  for (let attempt = 1; attempt <= 1000; attempt++) {
+    const candidate = attempt === 1 ? filename : `${stem}-${attempt}${extension}`;
+    try {
+      await access(path.join(folder, candidate));
+    } catch (error) {
+      if (isEnoent(error)) return candidate;
+      throw error;
+    }
+  }
+  throw new Error(`no free attachment name for ${filename}`);
+}
+
+function isEnoent(error: unknown): boolean {
+  return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
 }
 
 function isRootNote(name: string): boolean {
   return name.endsWith(".md") && !name.startsWith(".syncthing.");
 }
 
-async function atomicWrite(directory: string, filename: string, data: string | Uint8Array): Promise<void> {
-  const target = resolveInside(directory, filename);
-  const temporary = path.join(directory, `.syncthing.${path.basename(filename)}.tmp`);
+async function atomicWrite(root: string, relativePath: string, data: string | Uint8Array): Promise<void> {
+  const target = resolveInside(root, relativePath);
+  const directory = path.dirname(target);
+  await mkdir(directory, { recursive: true });
+  const temporary = path.join(directory, `.syncthing.${path.basename(target)}.tmp`);
   await writeFile(temporary, data);
   await rename(temporary, target);
 }
@@ -145,14 +183,15 @@ function parseSingleQuoted(value: string): string | undefined {
   return undefined;
 }
 
-function resolveInside(directory: string, filename: string): string {
-  if (filename !== path.basename(filename)) {
-    throw new Error(`filename must be a single path segment: ${filename}`);
+function resolveInside(rootDir: string, relativePath: string): string {
+  if (relativePath.length === 0 || path.isAbsolute(relativePath)) {
+    throw new Error(`refusing to write outside the vault: ${relativePath}`);
   }
-  const root = path.resolve(directory);
-  const target = path.resolve(root, filename);
-  if (!target.startsWith(`${root}${path.sep}`)) {
-    throw new Error(`refusing to write outside the vault: ${filename}`);
+  const root = path.resolve(rootDir);
+  const target = path.resolve(root, relativePath);
+  const relative = path.relative(root, target);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+    throw new Error(`refusing to write outside the vault: ${relativePath}`);
   }
   return target;
 }

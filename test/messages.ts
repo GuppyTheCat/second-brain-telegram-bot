@@ -33,6 +33,7 @@ export interface ChannelForwardInput {
   document?: Message["document"];
   audio?: Message["audio"];
   voice?: Message["voice"];
+  videoNote?: Message["video_note"];
   messageId?: number;
   chatId?: number;
   fromId?: number;
@@ -69,7 +70,21 @@ export function channelForward(input: ChannelForwardInput = {}): Message {
   if (input.document !== undefined) message.document = input.document;
   if (input.audio !== undefined) message.audio = input.audio;
   if (input.voice !== undefined) message.voice = input.voice;
+  if (input.videoNote !== undefined) message.video_note = input.videoNote;
   return message;
+}
+
+export function mediaFile(fileId: string): { file_id: string; file_unique_id: string } {
+  return { file_id: fileId, file_unique_id: `${fileId}-unique` };
+}
+
+export function photoSize(fileId: string, width: number, height: number, fileSize?: number): PhotoSize {
+  return {
+    ...mediaFile(fileId),
+    width,
+    height,
+    ...(fileSize === undefined ? {} : { file_size: fileSize }),
+  };
 }
 
 export function userForward(text = "forwarded from a user"): Message {

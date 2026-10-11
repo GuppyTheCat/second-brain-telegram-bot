@@ -3,8 +3,13 @@ import { SocksProxyAgent } from "socks-proxy-agent";
 import type { Config } from "./config.js";
 import type { Inbox } from "./inbox.js";
 
-export function createBot(config: Config, inbox: Inbox): Bot {
-  const bot = new Bot(config.botToken, clientOptions(config.proxyUrl));
+export function createProxyAgent(proxyUrl: string | undefined): SocksProxyAgent | undefined {
+  if (!proxyUrl) return undefined;
+  return new SocksProxyAgent(proxyUrl);
+}
+
+export function createBot(config: Config, inbox: Inbox, agent?: SocksProxyAgent): Bot {
+  const bot = new Bot(config.botToken, clientOptions(agent));
 
   bot.use(async (ctx, next) => {
     if (ctx.from?.id !== config.allowedUserId) return;
@@ -29,9 +34,8 @@ export function createBot(config: Config, inbox: Inbox): Bot {
   return bot;
 }
 
-function clientOptions(proxyUrl: string | undefined): BotConfig<Context> | undefined {
-  if (!proxyUrl) return undefined;
-  const agent = new SocksProxyAgent(proxyUrl);
+function clientOptions(agent: SocksProxyAgent | undefined): BotConfig<Context> | undefined {
+  if (!agent) return undefined;
   return {
     client: {
       baseFetchConfig: {

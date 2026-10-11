@@ -12,6 +12,7 @@ export interface ClippingInput {
   entities?: readonly TelegramEntity[];
   timezone: string;
   comment?: string;
+  mediaLines?: readonly string[];
 }
 
 export interface RenderedClipping {
@@ -31,7 +32,7 @@ export function renderClipping(input: ClippingInput): RenderedClipping {
     ? `https://t.me/${username}/${input.postId}`
     : `https://t.me/c/${privateChannelId(input.channelId)}/${input.postId}`;
   const markdown = telegramToMarkdown(input.text, input.entities);
-  const body = markdown.endsWith("\n") ? markdown : `${markdown}\n`;
+  const body = noteBody(markdown, input.mediaLines ?? []);
   const content = [
     "---",
     "categories:",
@@ -53,6 +54,16 @@ export function renderClipping(input: ClippingInput): RenderedClipping {
     content,
     source,
   };
+}
+
+function noteBody(markdown: string, mediaLines: readonly string[]): string {
+  if (mediaLines.length === 0) {
+    return markdown.endsWith("\n") ? markdown : `${markdown}\n`;
+  }
+  const embeds = `${mediaLines.join("\n")}\n`;
+  if (markdown.length === 0) return embeds;
+  const text = markdown.endsWith("\n") ? markdown : `${markdown}\n`;
+  return `${text}\n${embeds}`;
 }
 
 function formatComment(comment: string | undefined): string[] {

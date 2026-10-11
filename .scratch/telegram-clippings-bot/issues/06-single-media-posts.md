@@ -6,13 +6,13 @@ This slice introduces the production media fetcher (Bot API file download throug
 
 **Blocked by:** 01 (Tracer bullet — forwarded text post becomes a clipping note)
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] A photo post saves the largest available photo size into the attachments folder and embeds it as `![[…]]` after the caption text
-- [ ] Video, animation, document, audio and voice posts are saved and embedded the same way, with correct file extensions
-- [ ] Attachment filenames derive from the note's filename plus an index; a collision with an existing file gets a numeric suffix
-- [ ] A media-only post creates a note whose body contains just the embed
-- [ ] A file over 20 MB is not downloaded; the note contains a "media not downloaded" line with the post link, and the reply mentions it
-- [ ] Any other download failure behaves the same way as the size limit, and the reply mentions the failure
-- [ ] Media downloads go through the proxy when one is configured
-- [ ] Tests use a fake media fetcher returning bytes, "too large" or "failed" per file
+- [x] A photo post saves the largest available photo size into the attachments folder and embeds it as `![[…]]` after the caption text
+- [x] Video, animation, document, audio and voice posts are saved and embedded the same way, with correct file extensions
+- [x] Attachment filenames derive from the note's filename plus an index; a collision with an existing file gets a numeric suffix
+- [x] A media-only post creates a note whose body contains just the embed
+- [x] A file over 20 MB is not downloaded; the note contains a "media not downloaded" line with the post link, and the reply mentions it
+- [x] Any other download failure behaves the same way as the size limit, and the reply mentions the failure
+- [x] Media downloads go through the proxy when one is configured
+- [x] Tests use a fake media fetcher returning bytes, "too large" or "failed" per file

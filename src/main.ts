@@ -1,25 +1,27 @@
-import { createBot } from "./bot.js";
+import { createBot, createProxyAgent } from "./bot.js";
 import { systemClock } from "./clock.js";
 import { loadConfig } from "./config.js";
 import { createInbox } from "./inbox.js";
-import type { MediaFetcher } from "./media.js";
+import { createTelegramMediaFetcher, type TelegramFileSource } from "./media.js";
 import { createVaultStore } from "./vault.js";
 
 async function main(): Promise<void> {
   const config = loadConfig(process.env);
-  const media: MediaFetcher = {
-    async fetch() {
-      throw new Error("media downloads are not implemented yet");
-    },
+  const agent = createProxyAgent(config.proxyUrl);
+  let getFile: TelegramFileSource["getFile"] = () => {
+    throw new Error("bot is not ready");
   };
-
   let sendReply: (chatId: number, text: string) => Promise<void> = () => {
     throw new Error("bot is not ready");
   };
 
   const inbox = createInbox({
     vault: createVaultStore(config.vaultPath),
-    media,
+    media: createTelegramMediaFetcher({
+      token: config.botToken,
+      agent,
+      getFile: (fileId) => getFile(fileId),
+    }),
     reply: {
       reply: (chatId, text) => sendReply(chatId, text),
     },
@@ -31,7 +33,8 @@ async function main(): Promise<void> {
     },
   });
 
-  const bot = createBot(config, inbox);
+  const bot = createBot(config, inbox, agent);
+  getFile = (fileId) => bot.api.getFile(fileId);
   sendReply = async (chatId, text) => {
     await bot.api.sendMessage(chatId, text);
   };
