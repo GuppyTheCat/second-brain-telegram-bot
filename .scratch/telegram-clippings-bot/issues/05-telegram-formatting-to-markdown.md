@@ -17,11 +17,11 @@ Mapping, per the spec:
 
 **Blocked by:** 01 (Tracer bullet — forwarded text post becomes a clipping note)
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Each entity type in the mapping renders as specified
-- [ ] Hidden text links appear as markdown links with the original URL
-- [ ] Nested and overlapping entities (e.g. a bold link, italic inside bold) render correctly
-- [ ] Offsets are handled in UTF-16 code units, so text with emoji and other astral characters before an entity is converted correctly
-- [ ] Captions of media posts get the same conversion (verifiable once ticket 06 lands; text posts are enough for this ticket)
-- [ ] Tests assert on the full rendered note body through the Inbox
+- [x] Each entity type in the mapping renders as specified
+- [x] Hidden text links appear as markdown links with the original URL
+- [x] Nested and overlapping entities (e.g. a bold link, italic inside bold) render correctly
+- [x] Offsets are handled in UTF-16 code units, so text with emoji and other astral characters before an entity is converted correctly
+- [x] Captions of media posts get the same conversion (verifiable once ticket 06 lands; text posts are enough for this ticket)
+- [x] Tests assert on the full rendered note body through the Inbox

@@ -1,3 +1,4 @@
+import { telegramToMarkdown, type TelegramEntity } from "./telegram-markdown.js";
 import { formatYamlScalar } from "./yaml.js";
 
 export interface ClippingInput {
@@ -8,6 +9,7 @@ export interface ClippingInput {
   publishedUnix: number;
   createdUnix: number;
   text: string;
+  entities?: readonly TelegramEntity[];
   timezone: string;
   comment?: string;
 }
@@ -28,7 +30,8 @@ export function renderClipping(input: ClippingInput): RenderedClipping {
   const source = username
     ? `https://t.me/${username}/${input.postId}`
     : `https://t.me/c/${privateChannelId(input.channelId)}/${input.postId}`;
-  const body = input.text.endsWith("\n") ? input.text : `${input.text}\n`;
+  const markdown = telegramToMarkdown(input.text, input.entities);
+  const body = markdown.endsWith("\n") ? markdown : `${markdown}\n`;
   const content = [
     "---",
     "categories:",

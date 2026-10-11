@@ -1,5 +1,6 @@
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import type { MessageEntity } from "grammy/types";
 import { describe, expect, it } from "vitest";
 import { createHarness } from "./harness.js";
 import {
@@ -45,7 +46,7 @@ source: https://t.me/denissexy/11330
 published: 2026-04-01
 created: 2026-04-02
 ---
-${postText}
+**Участились**${postText.slice(10)}
 `);
       expect(harness.replies).toEqual([
         { chatId: 100, text: "2026-04-01 00-00 Denis Sexy IT 🤖" },
@@ -975,4 +976,217 @@ comment: keep
       await harness.cleanup();
     }
   });
+
+  const formatting: [string, string, MessageEntity[], string][] = [
+    ["bold", "Hello", [{ type: "bold", offset: 0, length: 5 }], "**Hello**"],
+    ["italic", "Hello", [{ type: "italic", offset: 0, length: 5 }], "*Hello*"],
+    ["strikethrough", "Hello", [{ type: "strikethrough", offset: 0, length: 5 }], "~~Hello~~"],
+    ["inline code", "use npm", [{ type: "code", offset: 4, length: 3 }], "use `npm`"],
+    [
+      "expandable blockquote",
+      "note",
+      [{ type: "expandable_blockquote", offset: 0, length: 4 }],
+      "> note\n",
+    ],
+  ];
+
+  it.each(formatting)("renders %s", async (_label, text, entities, body) => {
+    await expectClipping(text, entities, body);
+  });
+
+  it("renders inline code that contains a backtick", async () => {
+    await expectClipping("run a`b now", [{ type: "code", offset: 4, length: 3 }], "run ``a`b`` now");
+  });
+
+  it("renders a pre block with a language on its own lines", async () => {
+    await expectClipping(
+      "before print(1) after",
+      [{ type: "pre", offset: 7, length: 8, language: "python" }],
+      "before \n```python\nprint(1)\n```\n after",
+    );
+  });
+
+  it("lengthens a pre fence past backticks inside the block", async () => {
+    await expectClipping("```", [{ type: "pre", offset: 0, length: 3 }], "````\n```\n````\n");
+  });
+
+  it("renders a hidden text link", async () => {
+    await expectClipping(
+      "read the docs now",
+      [{ type: "text_link", offset: 9, length: 4, url: "https://example.com/docs" }],
+      "read the [docs](https://example.com/docs) now",
+    );
+  });
+
+  it("uses UTF-16 offsets when an emoji precedes a link", async () => {
+    const text = "👍 link";
+    expect(text.length).toBe(7);
+    await expectClipping(
+      text,
+      [{ type: "text_link", offset: 3, length: 4, url: "https://example.com/a" }],
+      "👍 [link](https://example.com/a)",
+    );
+  });
+
+  it("escapes brackets in link text and parentheses in the url", async () => {
+    await expectClipping(
+      "a[b]c",
+      [{ type: "text_link", offset: 0, length: 5, url: "https://example.com/a(b) c" }],
+      "[a\\[b\\]c](https://example.com/a%28b%29%20c)",
+    );
+  });
+
+  it("nests italic inside bold", async () => {
+    await expectClipping(
+      "hello",
+      [
+        { type: "bold", offset: 0, length: 5 },
+        { type: "italic", offset: 1, length: 3 },
+      ],
+      "**h*ell*o**",
+    );
+  });
+
+  it("renders a bold link", async () => {
+    await expectClipping(
+      "docs",
+      [
+        { type: "text_link", offset: 0, length: 4, url: "https://example.com" },
+        { type: "bold", offset: 0, length: 4 },
+      ],
+      "[**docs**](https://example.com)",
+    );
+  });
+
+  it("reopens an italic span that partially overlaps bold", async () => {
+    await expectClipping(
+      "abcdef",
+      [
+        { type: "bold", offset: 0, length: 4 },
+        { type: "italic", offset: 2, length: 4 },
+      ],
+      "**ab*cd***\u200b*ef*",
+    );
+  });
+
+  it("renders bold and italic on the same range", async () => {
+    await expectClipping(
+      "text",
+      [
+        { type: "bold", offset: 0, length: 4 },
+        { type: "italic", offset: 0, length: 4 },
+      ],
+      "***text***",
+    );
+  });
+
+  it("moves whitespace outside inline markers and splits them on newlines", async () => {
+    await expectClipping("x  bold  y", [{ type: "bold", offset: 1, length: 8 }], "x  **bold**  y");
+    await expectClipping("hello\nworld", [{ type: "bold", offset: 0, length: 11 }], "**hello**\n**world**");
+    await expectClipping("a   b", [{ type: "bold", offset: 1, length: 3 }], "a   b");
+  });
+
+  it("prefixes every blockquote line and keeps bold inside it", async () => {
+    await expectClipping(
+      "keep\nthis bold\nline",
+      [
+        { type: "blockquote", offset: 5, length: 14 },
+        { type: "bold", offset: 10, length: 4 },
+      ],
+      "keep\n> this **bold**\n> line\n",
+    );
+  });
+
+  it("keeps plain entity types as text", async () => {
+    const text = "https://example.com @name #tag $USD /start me@x.com +1-212-555-0123 Alice";
+    const at = (piece: string) => ({ offset: text.indexOf(piece), length: piece.length });
+    await expectClipping(text, [
+      { type: "url", ...at("https://example.com") },
+      { type: "mention", ...at("@name") },
+      { type: "hashtag", ...at("#tag") },
+      { type: "cashtag", ...at("$USD") },
+      { type: "bot_command", ...at("/start") },
+      { type: "email", ...at("me@x.com") },
+      { type: "phone_number", ...at("+1-212-555-0123") },
+      { type: "text_mention", ...at("Alice"), user: { id: 5, is_bot: false, first_name: "Alice" } },
+      { type: "underline", ...at("Alice") },
+      { type: "spoiler", ...at("@name") },
+      { type: "made_up", ...at("#tag") } as unknown as MessageEntity,
+    ], text);
+  });
+
+  it("keeps a custom emoji's fallback character", async () => {
+    const text = "nice 🎯 shot";
+    expect("🎯".length).toBe(2);
+    await expectClipping(
+      text,
+      [{ type: "custom_emoji", offset: 5, length: 2, custom_emoji_id: "emoji-1" }],
+      text,
+    );
+  });
+
+  it("does not escape markdown characters outside link text", async () => {
+    await expectClipping("a * b # c", [{ type: "bold", offset: 0, length: 1 }], "**a** * b # c");
+  });
+
+  it("renders a mixed post", async () => {
+    const text = ["🔥 Ship it", "", "See the docs today.", "Keep this bold", "line", "const n = 1"].join("\n");
+    await expectClipping(
+      text,
+      [
+        { type: "bold", offset: text.indexOf("Ship"), length: 4 },
+        { type: "text_link", offset: text.indexOf("docs"), length: 4, url: "https://example.com/docs" },
+        { type: "blockquote", offset: text.indexOf("Keep this bold"), length: "Keep this bold\nline".length },
+        { type: "bold", offset: text.indexOf("bold"), length: 4 },
+        { type: "pre", offset: text.indexOf("const n = 1"), length: "const n = 1".length, language: "ts" },
+      ],
+      "🔥 **Ship** it\n\nSee the [docs](https://example.com/docs) today.\n> Keep this **bold**\n> line\n```ts\nconst n = 1\n```\n",
+    );
+  });
+
+  it("converts caption entities when the post has no text", async () => {
+    const harness = await createHarness();
+    try {
+      await harness.inbox.handle(
+        channelForward({
+          caption: "Hello",
+          captionEntities: [{ type: "italic", offset: 0, length: 5 }],
+          publishedAt,
+          forwardedAt,
+        }),
+      );
+      const filename = "2026-04-01 00-00 Denis Sexy IT 🤖.md";
+      expect(await readFile(path.join(harness.root, filename), "utf8")).toBe(clippingNote("*Hello*"));
+      expect(harness.replies).toEqual([{ chatId: 100, text: "2026-04-01 00-00 Denis Sexy IT 🤖" }]);
+    } finally {
+      await harness.cleanup();
+    }
+  });
 });
+
+function clippingNote(body: string): string {
+  const normalized = body.endsWith("\n") ? body : `${body}\n`;
+  return `---
+categories:
+  - "[[Clippings]]"
+  - "[[Posts]]"
+title: Denis Sexy IT 🤖
+telegram: "[denissexy](https://t.me/denissexy)"
+source: https://t.me/denissexy/11330
+published: 2026-04-01
+created: 2026-04-02
+---
+${normalized}`;
+}
+
+async function expectClipping(text: string, entities: MessageEntity[], body: string): Promise<void> {
+  const harness = await createHarness();
+  try {
+    await harness.inbox.handle(channelForward({ text, entities, publishedAt, forwardedAt }));
+    const filename = "2026-04-01 00-00 Denis Sexy IT 🤖.md";
+    expect(await readFile(path.join(harness.root, filename), "utf8")).toBe(clippingNote(body));
+    expect(harness.replies).toEqual([{ chatId: 100, text: "2026-04-01 00-00 Denis Sexy IT 🤖" }]);
+  } finally {
+    await harness.cleanup();
+  }
+}

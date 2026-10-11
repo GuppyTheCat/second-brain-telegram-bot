@@ -31,6 +31,12 @@ export interface Inbox {
   idle(): Promise<void>;
 }
 
+function postBody(message: Message): { text: string; entities?: Message["entities"] } {
+  if (typeof message.text === "string") return { text: message.text, entities: message.entities };
+  if (typeof message.caption === "string") return { text: message.caption, entities: message.caption_entities };
+  return { text: "" };
+}
+
 const UNSUPPORTED = "не поддерживается";
 const COMMENT_WITHOUT_POST = "комментарий без поста — не сохранил";
 
@@ -108,6 +114,7 @@ export function createInbox(deps: InboxDependencies): Inbox {
     const origin = message.forward_origin;
     if (origin?.type === "channel") {
       const comment = attachPendingComment();
+      const body = postBody(message);
       const rendered = renderClipping({
         title: origin.chat.title,
         username: origin.chat.username,
@@ -115,7 +122,8 @@ export function createInbox(deps: InboxDependencies): Inbox {
         postId: origin.message_id,
         publishedUnix: origin.date,
         createdUnix: message.date,
-        text: message.text ?? "",
+        text: body.text,
+        entities: body.entities,
         timezone: deps.config.timezone,
         comment,
       });
