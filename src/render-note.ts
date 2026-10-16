@@ -23,7 +23,7 @@ export interface RenderedClipping {
 }
 
 const MAX_FILENAME_BYTES = 200;
-const FILENAME_INVALID = /[\\/:*?"<>|#^\[\]\p{Cc}]/gu;
+const FILENAME_INVALID = /[\\/:*?"<>|#^[\]\p{Cc}]/gu;
 
 export function renderClipping(input: ClippingInput): RenderedClipping {
   const published = formatZoned(input.publishedUnix, input.timezone);

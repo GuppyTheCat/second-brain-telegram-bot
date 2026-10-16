@@ -1,0 +1,8 @@
+services:
+  bot:
+    build: .
+    env_file: .env
+    user: "${PUID}:${PGID}"
+    volumes:
+      - ${VAULT_PATH}:${VAULT_PATH}
+    restart: unless-stopped

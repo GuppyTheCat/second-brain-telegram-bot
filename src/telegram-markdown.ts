@@ -193,7 +193,6 @@ function reconcile(writer: Writer, prev: Span[], next: Span[], text: string, ski
 function emitText(writer: Writer, chunk: string, active: readonly Span[], skipNewline: boolean): boolean {
   if (skipNewline) {
     if (chunk.startsWith("\n")) chunk = chunk.slice(1);
-    skipNewline = false;
   }
   if (chunk.length === 0) return false;
   const raw = active.some((span) => span.kind === "code" || span.kind === "pre");

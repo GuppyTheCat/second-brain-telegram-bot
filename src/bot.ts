@@ -11,6 +11,8 @@ export function createProxyAgent(proxyUrl: string | undefined): SocksProxyAgent 
 export function createBot(config: Config, inbox: Inbox, agent?: SocksProxyAgent): Bot {
   const bot = new Bot(config.botToken, clientOptions(agent));
 
+  // Allowlist is also set in the bot config in BotFather.
+  // This check stays so a foreign message is dropped if that setting fails.
   bot.use(async (ctx, next) => {
     if (ctx.from?.id !== config.allowedUserId) return;
     await next();

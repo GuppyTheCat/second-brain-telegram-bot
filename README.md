@@ -16,6 +16,8 @@ Copy `.env.example` to `.env`.
 | `TIMEZONE` | no | `Europe/Moscow` | Publication times in filenames and dates |
 | `COMMENT_WINDOW_MS` | no | `3000` | How long a comment stays attached to following forwards |
 | `ALBUM_WINDOW_MS` | no | `1500` | How long to wait for more parts of the same album |
+| `PUID` | compose | | Host UID that owns the vault. Compose only |
+| `PGID` | compose | | Host GID that owns the vault. Compose only |
 
 ## Run locally
 
@@ -25,6 +27,20 @@ pnpm dev
 ```
 
 `pnpm dev` long-polls Telegram. Forward a public channel post to the bot and a note appears at `VAULT_PATH`.
+
+```sh
+pnpm lint
+pnpm format
+```
+
+## Docker Compose
+
+`VAULT_PATH` in `.env` is both the path the process writes to and the host directory mounted into the container at the same path. `PUID` and `PGID` are the owner of that directory. Telegram traffic uses `PROXY_URL` from the environment; there is no proxy container.
+
+```sh
+docker compose build
+docker compose up -d
+```
 
 ## Test
 
