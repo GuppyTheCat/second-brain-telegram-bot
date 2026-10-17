@@ -108,17 +108,33 @@ function insertJournalEntry(content: string, entry: string): string {
   const entryLines = entry.split(/\r?\n/);
   const journalAt = lines.findIndex((line) => line === "## Journal");
   if (journalAt !== -1) {
-    let divider = lines.findIndex((line, index) => index > journalAt && line === "---");
-    if (divider === -1) divider = lines.length;
+    const divider = sectionDivider(lines, journalAt + 1);
     const section = lines.slice(journalAt + 1, divider);
     while (section.length > 0 && section.at(-1) === "") section.pop();
     const next = section.length === 0 ? entryLines : [...section, "", ...entryLines];
     return [...lines.slice(0, journalAt + 1), ...next, "", ...lines.slice(divider)].join(nl) + nl;
   }
-  const bodyAt = frontmatterEnd(lines);
-  let divider = lines.findIndex((line, index) => index >= bodyAt && line === "---");
-  if (divider === -1) divider = lines.length;
+  const divider = sectionDivider(lines, frontmatterEnd(lines));
   return [...lines.slice(0, divider), "## Journal", ...entryLines, "", ...lines.slice(divider)].join(nl) + nl;
+}
+
+// A `---` inside journal or notes text is stored as sent. The section ends at a rule
+// whose next non-blank line is an embed, or at the end of the file.
+function sectionDivider(lines: readonly string[], from: number): number {
+  for (let index = from; index < lines.length; index++) {
+    if (lines[index] !== "---") continue;
+    if (closesSection(lines, index)) return index;
+  }
+  return lines.length;
+}
+
+function closesSection(lines: readonly string[], divider: number): boolean {
+  for (let index = divider + 1; index < lines.length; index++) {
+    const line = lines[index];
+    if (line === undefined || line.length === 0) continue;
+    return line.startsWith("![[");
+  }
+  return true;
 }
 
 function frontmatterEnd(lines: readonly string[]): number {

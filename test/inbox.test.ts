@@ -385,6 +385,104 @@ source: https://t.me/denissexy/11330
     }
   });
 
+  it("appends the next entry after a horizontal rule in the journal body", async () => {
+    const harness = await createHarness();
+    try {
+      await harness.inbox.handle(plainText("---", at1636));
+      await harness.clock.advance(3000);
+      await harness.inbox.idle();
+      await harness.inbox.handle(plainText("после", at1640));
+      await harness.clock.advance(3000);
+      await harness.inbox.idle();
+
+      expect(await dailyFile(harness.root, "2026-10-17")).toBe(
+        dailyNote("2026-10-17", saturday, [entry("16:36", "---"), entry("16:40", "после")]),
+      );
+    } finally {
+      await harness.cleanup();
+    }
+  });
+
+  it("adds a journal section before the divider that precedes the task embeds", async () => {
+    const harness = await createHarness();
+    try {
+      const folder = path.join(harness.root, "Periodic", "Daily");
+      await mkdir(folder, { recursive: true });
+      await writeFile(
+        path.join(folder, "2026-10-17.md"),
+        `---
+categories:
+  - "[[Journal]]"
+created: 2026-10-17
+tags:
+  - daily
+---
+
+# Saturday, October 17th, 2026
+
+## Notes
+a thought
+
+---
+
+still notes
+![[Daily.base]]
+
+---
+
+![[tasks-default.base#Today]]
+
+---
+
+![[tasks-default.base#Past tasks]]
+
+---
+![[Daily Note - Inbox]]
+`,
+      );
+
+      await harness.inbox.handle(plainText("заметка", at1636));
+      await harness.clock.advance(3000);
+      await harness.inbox.idle();
+
+      expect(await dailyFile(harness.root, "2026-10-17")).toBe(`---
+categories:
+  - "[[Journal]]"
+created: 2026-10-17
+tags:
+  - daily
+---
+
+# Saturday, October 17th, 2026
+
+## Notes
+a thought
+
+---
+
+still notes
+![[Daily.base]]
+
+## Journal
+### 16:36
+заметка
+
+---
+
+![[tasks-default.base#Today]]
+
+---
+
+![[tasks-default.base#Past tasks]]
+
+---
+![[Daily Note - Inbox]]
+`);
+    } finally {
+      await harness.cleanup();
+    }
+  });
+
   it("adds a journal section before the first divider when the daily note has none", async () => {
     const harness = await createHarness();
     try {
