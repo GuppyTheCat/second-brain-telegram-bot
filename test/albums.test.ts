@@ -57,7 +57,7 @@ describe("inbox albums", () => {
         const outcome = await harness.inbox.handle(
           part({ postId, fileId, caption: fileId === "a" ? "три кадра" : undefined }),
         );
-        expect(outcome).toEqual({ type: "buffered" });
+        expect(outcome).toEqual({ type: "buffered", messageId: postId, class: "album" });
       }
       await harness.inbox.idle();
       expect(media.calls).toEqual([]);
@@ -83,7 +83,7 @@ describe("inbox albums", () => {
         [`${noteName} 1.jpg`, `${noteName} 2.jpg`, `${noteName} 3.jpg`].sort(),
       );
       expect(harness.replies).toEqual([{ chatId: 100, text: noteName }]);
-      expect(harness.outcomes).toEqual([{ type: "saved", noteName }]);
+      expect(harness.outcomes).toEqual([{ type: "saved", noteName, messageId: 10, class: "album" }]);
     } finally {
       await harness.cleanup();
     }
@@ -265,8 +265,8 @@ describe("inbox albums", () => {
         { chatId: 100, text: `уже сохранено: ${noteName}` },
       ]);
       expect(harness.outcomes).toEqual([
-        { type: "saved", noteName },
-        { type: "duplicate", noteName },
+        { type: "saved", noteName, messageId: 10, class: "album" },
+        { type: "duplicate", noteName, messageId: 10, class: "album" },
       ]);
     } finally {
       await harness.cleanup();

@@ -19,15 +19,16 @@ export interface InboxDependencies {
   reply: ReplySink;
   clock: Clock;
   config: InboxConfig;
-  /** Final album outcome. Immediate handle() results are not passed here. */
+  /** Album flush and journal flush. Immediate handle() results are not passed here. */
   onOutcome?: (outcome: InboxOutcome) => void;
 }
 
 export type InboxOutcome =
-  | { type: "saved"; noteName: string }
-  | { type: "duplicate"; noteName: string }
-  | { type: "unsupported" }
-  | { type: "buffered" };
+  | { type: "saved"; noteName: string; messageId: number; class: "channel" | "album" }
+  | { type: "duplicate"; noteName: string; messageId: number; class: "channel" | "album" }
+  | { type: "unsupported"; messageId: number; class: "unsupported" }
+  | { type: "buffered"; messageId: number; class: "text" | "album" }
+  | { type: "journal"; messageId: number; class: "text" | "channel" | "album"; when: string };
 
 export interface Inbox {
   handle(message: Message): Promise<InboxOutcome>;
@@ -59,10 +60,14 @@ function channelMessageId(message: Message): number {
 
 const UNSUPPORTED = "не поддерживается";
 
+type JournalClass = "text" | "channel" | "album";
+
 interface OpenJournal {
   parts: string[];
   startedUnix: number;
   chatId: number;
+  messageId: number;
+  class: JournalClass;
   generation: number;
   timer: unknown;
 }
@@ -112,12 +117,14 @@ export function createInbox(deps: InboxDependencies): Inbox {
     }, deps.config.commentWindowMs);
   }
 
-  function joinJournal(message: Message, part: string): void {
+  function joinJournal(message: Message, part: string, messageClass: JournalClass): void {
     if (!journal) {
       journal = {
         parts: [],
         startedUnix: message.date,
         chatId: message.chat.id,
+        messageId: message.message_id,
+        class: messageClass,
         generation: 0,
         timer: undefined,
       };
@@ -133,12 +140,19 @@ export function createInbox(deps: InboxDependencies): Inbox {
     const open = journal;
     journal = null;
     const moment = formatJournalMoment(open.startedUnix, deps.config.timezone);
+    const when = `${moment.date} ${moment.time}`;
     await deps.vault.appendDailyJournal({
       date: moment.date,
       heading: moment.heading,
       entry: `### ${moment.time}\n${open.parts.join("\n")}`,
     });
-    await deps.reply.reply(open.chatId, `${moment.date} ${moment.time}`);
+    await deps.reply.reply(open.chatId, when);
+    deps.onOutcome?.({
+      type: "journal",
+      messageId: open.messageId,
+      class: open.class,
+      when,
+    });
   }
 
   function postCallout(noteName: string): string {
@@ -149,20 +163,20 @@ export function createInbox(deps: InboxDependencies): Inbox {
     const origin = message.forward_origin;
     if (origin?.type === "channel") {
       if (message.media_group_id) return bufferAlbum(message);
-      const outcome = await saveChannelMessages([message]);
+      const outcome = await saveChannelMessages([message], "channel");
       if (outcome.type === "saved" || outcome.type === "duplicate") {
-        joinJournal(message, postCallout(outcome.noteName));
+        joinJournal(message, postCallout(outcome.noteName), "channel");
       }
       return outcome;
     }
 
     if (origin === undefined && typeof message.text === "string") {
-      joinJournal(message, message.text);
-      return { type: "buffered" };
+      joinJournal(message, message.text, "text");
+      return { type: "buffered", messageId: message.message_id, class: "text" };
     }
 
     await deps.reply.reply(message.chat.id, UNSUPPORTED);
-    return { type: "unsupported" };
+    return { type: "unsupported", messageId: message.message_id, class: "unsupported" };
   }
 
   function bufferAlbum(message: Message): InboxOutcome {
@@ -185,7 +199,7 @@ export function createInbox(deps: InboxDependencies): Inbox {
     album.timer = deps.clock.setTimeout(() => {
       return enqueue(() => flushAlbum(key, generation));
     }, deps.config.albumWindowMs);
-    return { type: "buffered" };
+    return { type: "buffered", messageId: message.message_id, class: "album" };
   }
 
   async function flushAlbum(key: string, generation: number): Promise<void> {
@@ -197,27 +211,30 @@ export function createInbox(deps: InboxDependencies): Inbox {
       .map((part) => part.message);
     let outcome: InboxOutcome;
     try {
-      outcome = await saveChannelMessages(messages);
+      outcome = await saveChannelMessages(messages, "album");
     } catch (error) {
       if (albums.size === 0) armJournal();
       throw error;
     }
     if (outcome.type === "saved" || outcome.type === "duplicate") {
       const primary = messages[0];
-      if (primary) joinJournal(primary, postCallout(outcome.noteName));
+      if (primary) joinJournal(primary, postCallout(outcome.noteName), "album");
     } else if (albums.size === 0) {
       armJournal();
     }
     deps.onOutcome?.(outcome);
   }
 
-  async function saveChannelMessages(messages: readonly Message[]): Promise<InboxOutcome> {
+  async function saveChannelMessages(
+    messages: readonly Message[],
+    messageClass: "channel" | "album",
+  ): Promise<InboxOutcome> {
     const primary = messages[0];
     if (!primary) throw new Error("album has no parts");
     const origin = primary.forward_origin;
     if (origin?.type !== "channel") {
       await deps.reply.reply(primary.chat.id, UNSUPPORTED);
-      return { type: "unsupported" };
+      return { type: "unsupported", messageId: primary.message_id, class: "unsupported" };
     }
     const input: ClippingInput = {
       title: origin.chat.title,
@@ -233,7 +250,12 @@ export function createInbox(deps: InboxDependencies): Inbox {
     const existing = await deps.vault.findBySource(draft.source);
     if (existing) {
       await deps.reply.reply(primary.chat.id, `уже сохранено: ${existing.noteName}`);
-      return { type: "duplicate", noteName: existing.noteName };
+      return {
+        type: "duplicate",
+        noteName: existing.noteName,
+        messageId: primary.message_id,
+        class: messageClass,
+      };
     }
     const filename = await deps.vault.chooseNoteFilename(draft.filename);
     const noteName = filename.slice(0, -".md".length);
@@ -248,7 +270,7 @@ export function createInbox(deps: InboxDependencies): Inbox {
       throw error;
     }
     await deps.reply.reply(primary.chat.id, savedReply(noteName, downloaded.problems, downloaded.total));
-    return { type: "saved", noteName };
+    return { type: "saved", noteName, messageId: primary.message_id, class: messageClass };
   }
 
   async function downloadMedia(

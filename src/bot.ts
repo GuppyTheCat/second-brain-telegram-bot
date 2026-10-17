@@ -30,7 +30,22 @@ export function createBot(config: Config, inbox: Inbox, agent?: SocksProxyAgent)
 }
 
 export function logInboxOutcome(outcome: InboxOutcome): void {
-  if (outcome.type === "saved") console.log(`saved note: ${outcome.noteName}`);
+  console.log(`msg ${outcome.messageId} class=${outcome.class} outcome=${outcomeText(outcome)}`);
+}
+
+function outcomeText(outcome: InboxOutcome): string {
+  switch (outcome.type) {
+    case "saved":
+      return `saved ${outcome.noteName}`;
+    case "duplicate":
+      return `duplicate ${outcome.noteName}`;
+    case "journal":
+      return `journal ${outcome.when}`;
+    case "buffered":
+      return "buffered";
+    case "unsupported":
+      return "unsupported";
+  }
 }
 
 function clientOptions(agent: SocksProxyAgent | undefined): BotConfig<Context> | undefined {
