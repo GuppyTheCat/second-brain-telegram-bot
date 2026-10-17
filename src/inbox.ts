@@ -195,7 +195,13 @@ export function createInbox(deps: InboxDependencies): Inbox {
     const messages = [...album.parts]
       .sort((a, b) => channelMessageId(a.message) - channelMessageId(b.message) || a.arrival - b.arrival)
       .map((part) => part.message);
-    const outcome = await saveChannelMessages(messages);
+    let outcome: InboxOutcome;
+    try {
+      outcome = await saveChannelMessages(messages);
+    } catch (error) {
+      if (albums.size === 0) armJournal();
+      throw error;
+    }
     if (outcome.type === "saved" || outcome.type === "duplicate") {
       const primary = messages[0];
       if (primary) joinJournal(primary, postCallout(outcome.noteName));

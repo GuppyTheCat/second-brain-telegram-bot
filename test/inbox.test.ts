@@ -791,6 +791,49 @@ tags:
     }
   });
 
+  it("does not coalesce a later message into a journal held by a failed album save", async () => {
+    const media = scriptedMedia({});
+    const harness = await createHarness("Europe/Moscow", media);
+    try {
+      await harness.inbox.handle(plainText("раннее", forwardedAt));
+      await harness.inbox.handle(
+        channelForward({
+          mediaGroupId: "album",
+          postId: 10,
+          messageId: 10,
+          caption: "пост",
+          photo: [photoSize("missing", 800, 600)],
+          publishedAt,
+          forwardedAt,
+        }),
+      );
+
+      await harness.clock.advance(1499);
+      await harness.inbox.idle();
+      await expect(dailyFile(harness.root, "2026-04-02")).rejects.toMatchObject({ code: "ENOENT" });
+
+      await expect(harness.clock.advance(1)).rejects.toThrow("unexpected media file: missing");
+
+      await harness.clock.advance(60 * 60 * 1000);
+      await harness.inbox.idle();
+      expect(await dailyFile(harness.root, "2026-04-02")).toBe(
+        dailyNote("2026-04-02", "Thursday, April 2nd, 2026", [entry("01:15", "раннее")]),
+      );
+
+      await harness.inbox.handle(plainText("позже", forwardedAt + 60 * 60));
+      await harness.clock.advance(3000);
+      await harness.inbox.idle();
+      expect(await dailyFile(harness.root, "2026-04-02")).toBe(
+        dailyNote("2026-04-02", "Thursday, April 2nd, 2026", [
+          entry("01:15", "раннее"),
+          entry("02:15", "позже"),
+        ]),
+      );
+    } finally {
+      await harness.cleanup();
+    }
+  });
+
   const formatting: [string, string, MessageEntity[], string][] = [
     ["bold", "Hello", [{ type: "bold", offset: 0, length: 5 }], "**Hello**"],
     ["italic", "Hello", [{ type: "italic", offset: 0, length: 5 }], "*Hello*"],
