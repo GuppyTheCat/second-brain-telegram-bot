@@ -4,7 +4,7 @@ import type { Message, MessageEntity } from "grammy/types";
 import { describe, expect, it } from "vitest";
 import type { Harness } from "./harness.js";
 import { createHarness, scriptedMedia } from "./harness.js";
-import { channelForward, photoMessage, photoSize, plainText } from "./messages.js";
+import { channelForward, photoMessage, photoSize } from "./messages.js";
 
 const publishedAt = Date.UTC(2026, 2, 31, 21, 0, 0) / 1000;
 const forwardedAt = Date.UTC(2026, 3, 1, 22, 15, 0) / 1000;
@@ -188,88 +188,6 @@ describe("inbox albums", () => {
     }
   });
 
-  it("applies a pending comment to the album note", async () => {
-    const media = scriptedMedia({ a: { bytes: bytes(1) }, b: { bytes: bytes(2) } });
-    const harness = await createHarness("Europe/Moscow", media);
-    try {
-      await harness.inbox.handle(plainText("к альбому"));
-      await harness.inbox.handle(part({ postId: 10, fileId: "a", caption: "пост" }));
-      await harness.inbox.handle(part({ postId: 11, fileId: "b" }));
-      await settle(harness);
-      await settle(harness, 3000);
-
-      expect(await readFile(path.join(harness.root, `${noteName}.md`), "utf8")).toBe(
-        clipping(`пост\n\n![[${noteName} 1.jpg]]\n![[${noteName} 2.jpg]]`, { comment: "к альбому" }),
-      );
-      expect(harness.replies).toEqual([{ chatId: 100, text: noteName }]);
-    } finally {
-      await harness.cleanup();
-    }
-  });
-
-  it("keeps the comment when album parts arrive near the end of the comment window", async () => {
-    const media = scriptedMedia({ a: { bytes: bytes(1) }, b: { bytes: bytes(2) } });
-    const harness = await createHarness("Europe/Moscow", media);
-    try {
-      await harness.inbox.handle(plainText("к альбому"));
-      await harness.clock.advance(2500);
-      await harness.inbox.handle(part({ postId: 10, fileId: "a", caption: "пост" }));
-      await harness.clock.advance(200);
-      await harness.inbox.handle(part({ postId: 11, fileId: "b" }));
-      await harness.clock.advance(1499);
-      await harness.inbox.idle();
-      expect(harness.replies).toEqual([]);
-      expect(await readdir(harness.root)).toEqual([]);
-
-      await settle(harness, 1);
-
-      expect(await readFile(path.join(harness.root, `${noteName}.md`), "utf8")).toBe(
-        clipping(`пост\n\n![[${noteName} 1.jpg]]\n![[${noteName} 2.jpg]]`, { comment: "к альбому" }),
-      );
-      expect(harness.replies).toEqual([{ chatId: 100, text: noteName }]);
-
-      await settle(harness, 2000);
-      expect(harness.replies).toEqual([{ chatId: 100, text: noteName }]);
-    } finally {
-      await harness.cleanup();
-    }
-  });
-
-  it("leaves a comment that arrives after the album started for the next forward", async () => {
-    const media = scriptedMedia({ a: { bytes: bytes(1) }, b: { bytes: bytes(2) } });
-    const harness = await createHarness("Europe/Moscow", media);
-    try {
-      await harness.inbox.handle(part({ postId: 10, fileId: "a", caption: "альбом" }));
-      await harness.inbox.handle(plainText("следующему"));
-      await harness.inbox.handle(part({ postId: 11, fileId: "b" }));
-      await settle(harness);
-
-      const album = await readFile(path.join(harness.root, `${noteName}.md`), "utf8");
-      expect(album).toBe(clipping(`альбом\n\n![[${noteName} 1.jpg]]\n![[${noteName} 2.jpg]]`));
-      expect(album).not.toContain("comment:");
-
-      await harness.inbox.handle(
-        channelForward({
-          text: "дальше",
-          postId: 40,
-          publishedAt: laterPublished,
-          forwardedAt,
-        }),
-      );
-      await settle(harness, 3000);
-
-      expect(await readFile(path.join(harness.root, `${laterNote}.md`), "utf8")).toBe(
-        clipping("дальше", { comment: "следующему", source: "https://t.me/denissexy/40" }),
-      );
-      expect(harness.replies).toEqual([
-        { chatId: 100, text: noteName },
-        { chatId: 100, text: laterNote },
-      ]);
-    } finally {
-      await harness.cleanup();
-    }
-  });
-
   it("embeds the parts that downloaded and names the one that failed", async () => {
     const media = scriptedMedia({
       a: { bytes: bytes(1) },
@@ -355,7 +273,7 @@ describe("inbox albums", () => {
     }
   });
 
-  it("appends a comment when a duplicate album is forwarded", async () => {
+  it("does not change a clipping when a duplicate album is forwarded", async () => {
     const media = scriptedMedia({ a: { bytes: bytes(1) }, b: { bytes: bytes(2) } });
     const harness = await createHarness("Europe/Moscow", media);
     try {
@@ -365,20 +283,17 @@ describe("inbox albums", () => {
       ];
       for (const message of parts) await harness.inbox.handle(message);
       await settle(harness);
+      const written = await readFile(path.join(harness.root, `${noteName}.md`), "utf8");
 
-      await harness.inbox.handle(plainText("добавка"));
       for (const message of parts) await harness.inbox.handle(message);
       await settle(harness);
-      await settle(harness, 3000);
 
       expect(media.calls).toEqual(["a", "b"]);
-      expect((await readdir(harness.root)).filter((name) => name.endsWith(".md"))).toEqual([`${noteName}.md`]);
-      expect(await readFile(path.join(harness.root, `${noteName}.md`), "utf8")).toBe(
-        clipping(`пост\n\n![[${noteName} 1.jpg]]\n![[${noteName} 2.jpg]]`, { comment: "добавка" }),
-      );
+      expect(await readFile(path.join(harness.root, `${noteName}.md`), "utf8")).toBe(written);
+      expect(written).not.toContain("comment:");
       expect(harness.replies).toEqual([
         { chatId: 100, text: noteName },
-        { chatId: 100, text: `уже сохранено: ${noteName}, комментарий добавлен` },
+        { chatId: 100, text: `уже сохранено: ${noteName}` },
       ]);
     } finally {
       await harness.cleanup();
@@ -500,12 +415,8 @@ describe("inbox albums", () => {
   });
 });
 
-function clipping(
-  body: string,
-  options?: { comment?: string; source?: string },
-): string {
+function clipping(body: string, options?: { source?: string }): string {
   const normalized = body.endsWith("\n") ? body : `${body}\n`;
-  const commentLine = options?.comment === undefined ? "" : `comment: ${options.comment}\n`;
   return `---
 categories:
   - "[[Clippings]]"
@@ -515,7 +426,7 @@ telegram: "[denissexy](https://t.me/denissexy)"
 source: ${options?.source ?? source}
 published: 2026-04-01
 created: 2026-04-02
-${commentLine}---
+---
 ${normalized}`;
 }
 

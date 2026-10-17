@@ -272,11 +272,11 @@ describe("inbox media", () => {
     }
   });
 
-  it("applies a pending comment to a media post", async () => {
+  it("saves a media clipping without a comment when text arrived first", async () => {
     const media = scriptedMedia({ pic: { bytes: jpeg } });
     const harness = await createHarness("Europe/Moscow", media);
     try {
-      await harness.inbox.handle(plainText("к разбору"));
+      await harness.inbox.handle(plainText("к разбору", forwardedAt));
       await harness.inbox.handle(
         channelForward({
           caption: "пост",
@@ -289,9 +289,14 @@ describe("inbox media", () => {
       await harness.inbox.idle();
 
       expect(await readFile(path.join(harness.root, `${noteName}.md`), "utf8")).toBe(
-        clipping(`пост\n\n![[${noteName} 1.jpg]]`, "к разбору"),
+        clipping(`пост\n\n![[${noteName} 1.jpg]]`),
       );
-      expect(harness.replies).toEqual([{ chatId: 100, text: noteName }]);
+      expect(harness.replies).toEqual([
+        { chatId: 100, text: noteName },
+        { chatId: 100, text: "2026-04-02 01:15" },
+      ]);
+      const journal = await readFile(path.join(harness.root, "Periodic", "Daily", "2026-04-02.md"), "utf8");
+      expect(journal).toContain(`### 01:15\nк разбору\n> [!post]\n> [[${noteName}]]\n`);
     } finally {
       await harness.cleanup();
     }
@@ -315,9 +320,8 @@ function attachment(root: string, filename: string): string {
   return path.join(root, "Attachments", filename);
 }
 
-function clipping(body: string, comment?: string): string {
+function clipping(body: string): string {
   const normalized = body.endsWith("\n") ? body : `${body}\n`;
-  const commentLine = comment === undefined ? "" : `comment: ${comment}\n`;
   return `---
 categories:
   - "[[Clippings]]"
@@ -327,7 +331,7 @@ telegram: "[denissexy](https://t.me/denissexy)"
 source: ${source}
 published: 2026-04-01
 created: 2026-04-02
-${commentLine}---
+---
 ${normalized}`;
 }
 

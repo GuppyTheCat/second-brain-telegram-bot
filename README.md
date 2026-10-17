@@ -1,6 +1,10 @@
 # Second Brain Telegram Bot
 
-Personal Telegram bot that saves forwarded channel posts into an Obsidian vault as clipping notes.
+Personal Telegram bot that writes journal entries and clipping notes into an Obsidian vault.
+
+## What it does
+
+Plain text and channel forwards that arrive inside `COMMENT_WINDOW_MS` become one daily-note entry. A channel forward also creates a clipping note and is recorded in the journal as a `> [!post]` wikilink to that note. Anything else gets «не поддерживается».
 
 ## Environment
 
@@ -14,7 +18,7 @@ Copy `.env.example` to `.env`.
 | `PROXY_URL` | no | | SOCKS proxy for Telegram. Unset connects directly |
 | `ATTACHMENTS_DIR` | no | `Attachments` | Attachments folder inside the vault |
 | `TIMEZONE` | no | `Europe/Moscow` | Publication times in filenames and dates |
-| `COMMENT_WINDOW_MS` | no | `3000` | How long a comment stays attached to following forwards |
+| `COMMENT_WINDOW_MS` | no | `3000` | How long plain text and channel forwards keep joining the same daily-note entry |
 | `ALBUM_WINDOW_MS` | no | `1500` | How long to wait for more parts of the same album |
 | `PUID` | compose | | Host UID that owns the vault. Compose only |
 | `PGID` | compose | | Host GID that owns the vault. Compose only |
@@ -26,7 +30,7 @@ pnpm install
 pnpm dev
 ```
 
-`pnpm dev` long-polls Telegram. Forward a public channel post to the bot and a note appears at `VAULT_PATH`.
+`pnpm dev` long-polls Telegram. Forward a public channel post, or send a plain message, and the bot writes into `VAULT_PATH`.
 
 ```sh
 pnpm lint

@@ -167,10 +167,10 @@ export function photoMessage(): Message {
   };
 }
 
-export function plainText(text = "this will be a comment later"): Message {
+export function plainText(text = "this will be a comment later", date = 1_775_000_000): Message {
   return {
     message_id: 7,
-    date: 1_775_000_000,
+    date,
     chat: privateChat(),
     from: owner,
     text,

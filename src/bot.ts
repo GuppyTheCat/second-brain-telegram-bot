@@ -31,12 +31,6 @@ export function createBot(config: Config, inbox: Inbox, agent?: SocksProxyAgent)
 
 export function logInboxOutcome(outcome: InboxOutcome): void {
   if (outcome.type === "saved") console.log(`saved note: ${outcome.noteName}`);
-  if (outcome.type === "duplicate" && outcome.comment === "appended") {
-    console.log(`appended comment: ${outcome.noteName}`);
-  }
-  if (outcome.type === "duplicate" && outcome.comment === "failed") {
-    console.error(`comment not appended: ${outcome.noteName}`);
-  }
 }
 
 function clientOptions(agent: SocksProxyAgent | undefined): BotConfig<Context> | undefined {

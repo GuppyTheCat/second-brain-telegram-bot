@@ -11,7 +11,6 @@ export interface ClippingInput {
   text: string;
   entities?: readonly TelegramEntity[];
   timezone: string;
-  comment?: string;
   mediaLines?: readonly string[];
 }
 
@@ -47,7 +46,6 @@ export function renderClipping(input: ClippingInput): RenderedClipping {
     `source: ${formatYamlScalar(source)}`,
     `published: ${published.date}`,
     `created: ${created.date}`,
-    ...formatComment(input.comment),
     "---",
     body,
   ].join("\n");
@@ -68,12 +66,6 @@ function noteBody(markdown: string, mediaLines: readonly string[]): string {
   if (markdown.length === 0) return embeds;
   const text = markdown.endsWith("\n") ? markdown : `${markdown}\n`;
   return `${text}\n${embeds}`;
-}
-
-function formatComment(comment: string | undefined): string[] {
-  if (comment === undefined) return [];
-  if (!comment.includes("\n")) return [`comment: ${formatYamlScalar(comment)}`];
-  return ["comment: |-", ...comment.split("\n").map((line) => `  ${line}`)];
 }
 
 function filenameChannel(prefix: string, title: string): string {

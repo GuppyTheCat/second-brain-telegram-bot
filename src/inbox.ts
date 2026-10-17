@@ -25,8 +25,7 @@ export interface InboxDependencies {
 
 export type InboxOutcome =
   | { type: "saved"; noteName: string }
-  | { type: "duplicate"; noteName: string; comment?: "appended" | "failed" }
-  | { type: "comment" }
+  | { type: "duplicate"; noteName: string }
   | { type: "unsupported" }
   | { type: "buffered" };
 
@@ -59,12 +58,11 @@ function channelMessageId(message: Message): number {
 }
 
 const UNSUPPORTED = "не поддерживается";
-const COMMENT_WITHOUT_POST = "комментарий без поста — не сохранил";
 
-interface PendingComment {
-  text: string;
+interface OpenJournal {
+  parts: string[];
+  startedUnix: number;
   chatId: number;
-  attached: boolean;
   generation: number;
   timer: unknown;
 }
@@ -76,19 +74,18 @@ interface AlbumPart {
 
 interface OpenAlbum {
   parts: AlbumPart[];
-  comment: string | undefined;
   generation: number;
   timer: unknown;
 }
 
 export function createInbox(deps: InboxDependencies): Inbox {
   let tail: Promise<void> = Promise.resolve();
-  let pending: PendingComment | null = null;
+  let journal: OpenJournal | null = null;
   let nextGeneration = 1;
   let nextArrival = 0;
   const albums = new Map<string, OpenAlbum>();
 
-  // Comment-window and album timers must enqueue through here and return that
+  // Journal and album timers must enqueue through here and return that
   // promise from `clock.setTimeout`. ManualClock.advance and idle() then both
   // wait for the work.
   function enqueue<T>(task: () => Promise<T>): Promise<T> {
@@ -100,65 +97,68 @@ export function createInbox(deps: InboxDependencies): Inbox {
     return run;
   }
 
-  function armCommentWindow(): void {
-    if (!pending) return;
-    deps.clock.clearTimeout(pending.timer);
+  function holdJournal(): void {
+    if (!journal) return;
+    deps.clock.clearTimeout(journal.timer);
+  }
+
+  function armJournal(): void {
+    if (!journal) return;
+    deps.clock.clearTimeout(journal.timer);
     const generation = nextGeneration++;
-    pending.generation = generation;
-    pending.timer = deps.clock.setTimeout(() => {
-      return enqueue(() => expireComment(generation));
+    journal.generation = generation;
+    journal.timer = deps.clock.setTimeout(() => {
+      return enqueue(() => flushJournal(generation));
     }, deps.config.commentWindowMs);
   }
 
-  async function expireComment(generation: number): Promise<void> {
-    if (!pending || pending.generation !== generation) return;
-    const expired = pending;
-    pending = null;
-    if (!expired.attached) {
-      await deps.reply.reply(expired.chatId, COMMENT_WITHOUT_POST);
+  function joinJournal(message: Message, part: string): void {
+    if (!journal) {
+      journal = {
+        parts: [],
+        startedUnix: message.date,
+        chatId: message.chat.id,
+        generation: 0,
+        timer: undefined,
+      };
     }
+    journal.parts.push(part);
+    if (albums.size === 0) armJournal();
+    else holdJournal();
   }
 
-  // Copies the open comment onto this post and restarts the window, so a
-  // batch stays covered. An album captures it on the first part; later parts
-  // only keep that attached window from expiring while the group is open.
-  function attachPendingComment(): string | undefined {
-    if (!pending) return undefined;
-    pending.attached = true;
-    armCommentWindow();
-    return pending.text;
+  async function flushJournal(generation: number): Promise<void> {
+    if (!journal || journal.generation !== generation) return;
+    if (albums.size > 0) return;
+    const open = journal;
+    journal = null;
+    const moment = formatJournalMoment(open.startedUnix, deps.config.timezone);
+    await deps.vault.appendDailyJournal({
+      date: moment.date,
+      heading: moment.heading,
+      entry: `### ${moment.time}\n${open.parts.join("\n")}`,
+    });
+    await deps.reply.reply(open.chatId, `${moment.date} ${moment.time}`);
   }
 
-  function extendAttachedComment(): void {
-    if (!pending?.attached) return;
-    armCommentWindow();
-  }
-
-  async function acceptComment(message: Message): Promise<InboxOutcome> {
-    const previous = pending;
-    pending = {
-      text: message.text ?? "",
-      chatId: message.chat.id,
-      attached: false,
-      generation: 0,
-      timer: previous?.timer,
-    };
-    armCommentWindow();
-    if (previous && !previous.attached) {
-      await deps.reply.reply(previous.chatId, COMMENT_WITHOUT_POST);
-    }
-    return { type: "comment" };
+  function postCallout(noteName: string): string {
+    return `> [!post]\n> [[${noteName}]]`;
   }
 
   async function processMessage(message: Message): Promise<InboxOutcome> {
     const origin = message.forward_origin;
     if (origin?.type === "channel") {
       if (message.media_group_id) return bufferAlbum(message);
-      return saveChannelMessages([message], attachPendingComment());
+      const outcome = await saveChannelMessages([message]);
+      if (outcome.type === "saved" || outcome.type === "duplicate") {
+        joinJournal(message, postCallout(outcome.noteName));
+      }
+      return outcome;
     }
 
     if (origin === undefined && typeof message.text === "string") {
-      return acceptComment(message);
+      joinJournal(message, message.text);
+      return { type: "buffered" };
     }
 
     await deps.reply.reply(message.chat.id, UNSUPPORTED);
@@ -172,13 +172,11 @@ export function createInbox(deps: InboxDependencies): Inbox {
     if (!album) {
       album = {
         parts: [],
-        comment: attachPendingComment(),
         generation: 0,
         timer: undefined,
       };
       albums.set(key, album);
-    } else {
-      extendAttachedComment();
+      holdJournal();
     }
     album.parts.push({ message, arrival: nextArrival++ });
     const generation = nextGeneration++;
@@ -197,14 +195,17 @@ export function createInbox(deps: InboxDependencies): Inbox {
     const messages = [...album.parts]
       .sort((a, b) => channelMessageId(a.message) - channelMessageId(b.message) || a.arrival - b.arrival)
       .map((part) => part.message);
-    const outcome = await saveChannelMessages(messages, album.comment);
+    const outcome = await saveChannelMessages(messages);
+    if (outcome.type === "saved" || outcome.type === "duplicate") {
+      const primary = messages[0];
+      if (primary) joinJournal(primary, postCallout(outcome.noteName));
+    } else if (albums.size === 0) {
+      armJournal();
+    }
     deps.onOutcome?.(outcome);
   }
 
-  async function saveChannelMessages(
-    messages: readonly Message[],
-    comment: string | undefined,
-  ): Promise<InboxOutcome> {
+  async function saveChannelMessages(messages: readonly Message[]): Promise<InboxOutcome> {
     const primary = messages[0];
     if (!primary) throw new Error("album has no parts");
     const origin = primary.forward_origin;
@@ -221,22 +222,12 @@ export function createInbox(deps: InboxDependencies): Inbox {
       createdUnix: primary.date,
       text: captionMarkdown(messages),
       timezone: deps.config.timezone,
-      comment,
     };
     const draft = renderClipping(input);
     const existing = await deps.vault.findBySource(draft.source);
     if (existing) {
-      if (comment === undefined) {
-        await deps.reply.reply(primary.chat.id, `уже сохранено: ${existing.noteName}`);
-        return { type: "duplicate", noteName: existing.noteName };
-      }
-      const appended = await deps.vault.appendComment(existing.filename, comment);
-      if (appended === "appended") {
-        await deps.reply.reply(primary.chat.id, `уже сохранено: ${existing.noteName}, комментарий добавлен`);
-        return { type: "duplicate", noteName: existing.noteName, comment: "appended" };
-      }
-      await deps.reply.reply(primary.chat.id, `уже сохранено: ${existing.noteName}, комментарий не добавлен`);
-      return { type: "duplicate", noteName: existing.noteName, comment: "failed" };
+      await deps.reply.reply(primary.chat.id, `уже сохранено: ${existing.noteName}`);
+      return { type: "duplicate", noteName: existing.noteName };
     }
     const filename = await deps.vault.chooseNoteFilename(draft.filename);
     const noteName = filename.slice(0, -".md".length);
@@ -396,6 +387,62 @@ function cleanExtension(raw: string | undefined): string | undefined {
   const extension = raw.trim().replace(/^\.+/, "").toLowerCase();
   if (extension === "octet-stream" || !/^[a-z0-9]+$/.test(extension)) return undefined;
   return extension;
+}
+
+function formatJournalMoment(
+  unixSeconds: number,
+  timeZone: string,
+): { date: string; time: string; heading: string } {
+  const instant = new Date(unixSeconds * 1000);
+  const clock = zonedParts(instant, timeZone, {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  });
+  const named = zonedParts(instant, timeZone, {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+  let hour = clock.hour ?? "00";
+  if (hour === "24") hour = "00";
+  const minute = (clock.minute ?? "00").padStart(2, "0");
+  const day = Number(named.day);
+  return {
+    date: `${clock.year}-${clock.month}-${clock.day}`,
+    time: `${hour.padStart(2, "0")}:${minute}`,
+    heading: `${named.weekday}, ${named.month} ${day}${ordinal(day)}, ${named.year}`,
+  };
+}
+
+function zonedParts(
+  instant: Date,
+  timeZone: string,
+  options: Intl.DateTimeFormatOptions,
+): Partial<Record<Intl.DateTimeFormatPartTypes, string>> {
+  const parts = new Intl.DateTimeFormat("en-US", { ...options, timeZone }).formatToParts(instant);
+  const out: Partial<Record<Intl.DateTimeFormatPartTypes, string>> = {};
+  for (const part of parts) out[part.type] = part.value;
+  return out;
+}
+
+function ordinal(day: number): string {
+  const mod100 = day % 100;
+  if (mod100 >= 11 && mod100 <= 13) return "th";
+  switch (day % 10) {
+    case 1:
+      return "st";
+    case 2:
+      return "nd";
+    case 3:
+      return "rd";
+    default:
+      return "th";
+  }
 }
 
 function mediaFailureLine(reason: MediaProblem, source: string): string {

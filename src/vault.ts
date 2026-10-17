@@ -1,19 +1,25 @@
 import { access, link, mkdir, readdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { appendFrontmatterComment } from "./frontmatter-comment.js";
 
 export interface ExistingNote {
   filename: string;
   noteName: string;
 }
 
-export type AppendCommentResult = "appended" | "unparsed";
+export interface DailyJournalEntry {
+  /** `YYYY-MM-DD`, also the daily-note filename. */
+  date: string;
+  /** English heading, for example `Saturday, October 17th, 2026`. */
+  heading: string;
+  /** `### HH:mm` followed by the entry body. */
+  entry: string;
+}
 
 export interface VaultStore {
   createNote(filename: string, content: string): Promise<void>;
   chooseNoteFilename(filename: string): Promise<string>;
   findBySource(source: string): Promise<ExistingNote | undefined>;
-  appendComment(filename: string, comment: string): Promise<AppendCommentResult>;
+  appendDailyJournal(entry: DailyJournalEntry): Promise<void>;
   saveAttachment(directory: string, filename: string, bytes: Uint8Array): Promise<string>;
 }
 
@@ -40,13 +46,20 @@ export function createVaultStore(root: string): VaultStore {
       }
       return undefined;
     },
-    async appendComment(filename, comment) {
-      assertSegment(filename);
-      const content = await readFile(resolveInside(root, filename), "utf8");
-      const updated = appendFrontmatterComment(content, comment);
-      if (updated === undefined) return "unparsed";
-      await atomicWrite(root, filename, updated);
-      return "appended";
+    async appendDailyJournal(entry) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(entry.date)) {
+        throw new Error(`daily note date must be YYYY-MM-DD: ${entry.date}`);
+      }
+      const relative = path.join("Periodic", "Daily", `${entry.date}.md`);
+      let content: string;
+      try {
+        content = await readFile(resolveInside(root, relative), "utf8");
+      } catch (error) {
+        if (!isEnoent(error)) throw error;
+        await atomicWrite(root, relative, dailySkeleton(entry));
+        return;
+      }
+      await atomicWrite(root, relative, insertJournalEntry(content, entry.entry));
     },
     async saveAttachment(directory, filename, bytes) {
       assertSegment(directory);
@@ -56,6 +69,64 @@ export function createVaultStore(root: string): VaultStore {
       return chosen;
     },
   };
+}
+
+function dailySkeleton(entry: DailyJournalEntry): string {
+  return `---
+categories:
+  - "[[Journal]]"
+created: ${entry.date}
+tags:
+  - daily
+---
+
+# ${entry.heading}
+
+## Notes
+![[Daily.base]]
+
+## Journal
+${entry.entry}
+
+---
+
+![[tasks-default.base#Today]]
+
+---
+
+![[tasks-default.base#Past tasks]]
+
+---
+![[Daily Note - Inbox]]
+`;
+}
+
+function insertJournalEntry(content: string, entry: string): string {
+  const nl = content.includes("\r\n") ? "\r\n" : "\n";
+  const lines = content.split(/\r?\n/);
+  if (lines.at(-1) === "") lines.pop();
+  const entryLines = entry.split(/\r?\n/);
+  const journalAt = lines.findIndex((line) => line === "## Journal");
+  if (journalAt !== -1) {
+    let divider = lines.findIndex((line, index) => index > journalAt && line === "---");
+    if (divider === -1) divider = lines.length;
+    const section = lines.slice(journalAt + 1, divider);
+    while (section.length > 0 && section.at(-1) === "") section.pop();
+    const next = section.length === 0 ? entryLines : [...section, "", ...entryLines];
+    return [...lines.slice(0, journalAt + 1), ...next, "", ...lines.slice(divider)].join(nl) + nl;
+  }
+  const bodyAt = frontmatterEnd(lines);
+  let divider = lines.findIndex((line, index) => index >= bodyAt && line === "---");
+  if (divider === -1) divider = lines.length;
+  return [...lines.slice(0, divider), "## Journal", ...entryLines, "", ...lines.slice(divider)].join(nl) + nl;
+}
+
+function frontmatterEnd(lines: readonly string[]): number {
+  if (lines[0] !== "---") return 0;
+  for (let index = 1; index < lines.length; index++) {
+    if (lines[index] === "---") return index + 1;
+  }
+  return 0;
 }
 
 function assertSegment(name: string): void {
