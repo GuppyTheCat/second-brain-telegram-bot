@@ -138,14 +138,19 @@ export function createInbox(deps: InboxDependencies): Inbox {
     if (!journal || journal.generation !== generation) return;
     if (albums.size > 0) return;
     const open = journal;
-    journal = null;
     const moment = formatJournalMoment(open.startedUnix, deps.config.timezone);
     const when = `${moment.date} ${moment.time}`;
-    await deps.vault.appendDailyJournal({
-      date: moment.date,
-      heading: moment.heading,
-      entry: `### ${moment.time}\n${open.parts.join("\n")}`,
-    });
+    try {
+      await deps.vault.appendDailyJournal({
+        date: moment.date,
+        heading: moment.heading,
+        entry: `### ${moment.time}\n${open.parts.join("\n")}`,
+      });
+    } catch (error) {
+      armJournal();
+      throw error;
+    }
+    journal = null;
     await deps.reply.reply(open.chatId, when);
     deps.onOutcome?.({
       type: "journal",

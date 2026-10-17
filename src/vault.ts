@@ -51,13 +51,19 @@ export function createVaultStore(root: string): VaultStore {
         throw new Error(`daily note date must be YYYY-MM-DD: ${entry.date}`);
       }
       const relative = path.join("Periodic", "Daily", `${entry.date}.md`);
+      const target = resolveInside(root, relative);
       let content: string;
       try {
-        content = await readFile(resolveInside(root, relative), "utf8");
+        content = await readFile(target, "utf8");
       } catch (error) {
         if (!isEnoent(error)) throw error;
-        await atomicWrite(root, relative, dailySkeleton(entry));
-        return;
+        try {
+          await exclusiveWrite(root, relative, dailySkeleton(entry));
+          return;
+        } catch (createError) {
+          if (!isEexist(createError)) throw createError;
+          content = await readFile(target, "utf8");
+        }
       }
       await atomicWrite(root, relative, insertJournalEntry(content, entry.entry));
     },
@@ -185,7 +191,15 @@ async function chooseAttachmentName(root: string, directory: string, filename: s
 }
 
 function isEnoent(error: unknown): boolean {
-  return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
+  return isFsError(error, "ENOENT");
+}
+
+function isEexist(error: unknown): boolean {
+  return isFsError(error, "EEXIST");
+}
+
+function isFsError(error: unknown, code: string): boolean {
+  return typeof error === "object" && error !== null && "code" in error && error.code === code;
 }
 
 function isRootNote(name: string): boolean {

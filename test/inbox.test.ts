@@ -1,7 +1,7 @@
-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { MessageEntity } from "grammy/types";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createHarness, scriptedMedia } from "./harness.js";
 import {
   channelForward,
@@ -13,6 +13,29 @@ import {
   stickerMessage,
   userForward,
 } from "./messages.js";
+
+const dailyLinkHook = vi.hoisted(() => {
+  return { fn: undefined as undefined | ((target: string) => Promise<void>) };
+});
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>();
+  return {
+    ...actual,
+    link(
+      existingPath: Parameters<typeof actual.link>[0],
+      newPath: Parameters<typeof actual.link>[1],
+    ): Promise<void> {
+      const target = String(newPath);
+      const hook = dailyLinkHook.fn;
+      if (hook && target.endsWith("2026-10-17.md")) {
+        dailyLinkHook.fn = undefined;
+        return hook(target).then(() => actual.link(existingPath, newPath));
+      }
+      return actual.link(existingPath, newPath);
+    },
+  };
+});
 
 const publishedAt = Date.UTC(2026, 2, 31, 21, 0, 0) / 1000;
 const forwardedAt = Date.UTC(2026, 3, 1, 22, 15, 0) / 1000;
@@ -291,6 +314,58 @@ source: https://t.me/denissexy/11330
         dailyNote("2026-10-17", saturday, [entry("16:36", "заметка")]),
       );
     } finally {
+      await harness.cleanup();
+    }
+  });
+
+  it("keeps the journal when the daily note write fails and retries it", async () => {
+    const harness = await createHarness();
+    try {
+      const blocker = path.join(harness.root, "Periodic", "Daily");
+      await mkdir(path.dirname(blocker), { recursive: true });
+      await writeFile(blocker, "not a directory\n");
+
+      await harness.inbox.handle(plainText("не потерять", at1636));
+      await expect(harness.clock.advance(3000)).rejects.toThrow("not a directory");
+      expect(harness.replies).toEqual([]);
+
+      await expect(harness.clock.advance(3000)).rejects.toThrow("not a directory");
+      expect(harness.replies).toEqual([]);
+
+      await rm(blocker);
+      await harness.inbox.handle(plainText("ещё", at1640));
+      await harness.clock.advance(3000);
+      await harness.inbox.idle();
+
+      expect(await dailyFile(harness.root, "2026-10-17")).toBe(
+        dailyNote("2026-10-17", saturday, [entry("16:36", "не потерять\nещё")]),
+      );
+      expect(harness.replies).toEqual([{ chatId: 100, text: "2026-10-17 16:36" }]);
+    } finally {
+      await harness.cleanup();
+    }
+  });
+
+  it("inserts into a daily note that appears while the missing file is created", async () => {
+    const harness = await createHarness();
+    const planted = dailyNote("2026-10-17", saturday, [entry("09:00", "уже было")]);
+    // Runs from link(), after the missing-file read and before the exclusive create.
+    dailyLinkHook.fn = async (target) => {
+      await writeFile(target, planted);
+    };
+    try {
+      await harness.inbox.handle(plainText("ещё", at1636));
+      await harness.clock.advance(3000);
+      await harness.inbox.idle();
+
+      expect(await dailyFile(harness.root, "2026-10-17")).toBe(
+        dailyNote("2026-10-17", saturday, [entry("09:00", "уже было"), entry("16:36", "ещё")]),
+      );
+      expect(harness.replies).toEqual([{ chatId: 100, text: "2026-10-17 16:36" }]);
+      const names = await readdir(path.join(harness.root, "Periodic", "Daily"));
+      expect(names).toEqual(["2026-10-17.md"]);
+    } finally {
+      dailyLinkHook.fn = undefined;
       await harness.cleanup();
     }
   });
