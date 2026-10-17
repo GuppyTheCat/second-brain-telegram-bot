@@ -341,7 +341,13 @@ describe("inbox media", () => {
     try {
       await harness.inbox.handle(photoMessage());
       expect(media.calls).toEqual([]);
-      expect(harness.replies).toEqual([{ chatId: 100, messageId: 6, text: "не поддерживается" }]);
+      expect(harness.replies).toEqual([
+        {
+          chatId: 100,
+          messageId: 6,
+          text: "Своё медиа не сохраняю. Принимаю обычный текст и посты каналов.",
+        },
+      ]);
       expect(await readdir(harness.root)).toEqual([]);
     } finally {
       await harness.cleanup();

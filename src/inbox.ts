@@ -59,7 +59,10 @@ function channelMessageId(message: Message): number {
   return Number.MAX_SAFE_INTEGER;
 }
 
-const UNSUPPORTED = "не поддерживается";
+const NOT_A_CHANNEL = "Пересылка не из канала. Принимаю обычный текст и посты каналов.";
+const STICKER = "Стикер не сохраняю. Принимаю обычный текст и посты каналов.";
+const OWN_MEDIA = "Своё медиа не сохраняю. Принимаю обычный текст и посты каналов.";
+const OTHER_TYPE = "Такой тип сообщения не сохраняю. Принимаю обычный текст и посты каналов.";
 
 type JournalClass = "text" | "channel" | "album";
 type MediaProblem = "too_large" | "failed";
@@ -208,7 +211,11 @@ export function createInbox(deps: InboxDependencies): Inbox {
       return { type: "buffered", messageId: message.message_id, class: "text" };
     }
 
-    await deps.reply.reply(message.chat.id, message.message_id, UNSUPPORTED);
+    return refuse(message);
+  }
+
+  async function refuse(message: Message): Promise<Extract<InboxOutcome, { type: "unsupported" }>> {
+    await deps.reply.reply(message.chat.id, message.message_id, refusalText(message));
     return { type: "unsupported", messageId: message.message_id, class: "unsupported" };
   }
 
@@ -266,10 +273,7 @@ export function createInbox(deps: InboxDependencies): Inbox {
     const primary = messages[0];
     if (!primary) throw new Error("album has no parts");
     const origin = primary.forward_origin;
-    if (origin?.type !== "channel") {
-      await deps.reply.reply(primary.chat.id, primary.message_id, UNSUPPORTED);
-      return { type: "unsupported", messageId: primary.message_id, class: "unsupported" };
-    }
+    if (origin?.type !== "channel") return refuse(primary);
     const input: ClippingInput = {
       title: origin.chat.title,
       username: origin.chat.username,
@@ -344,6 +348,26 @@ export function createInbox(deps: InboxDependencies): Inbox {
       return tail;
     },
   };
+}
+
+function refusalText(message: Message): string {
+  const origin = message.forward_origin;
+  if (origin !== undefined && origin.type !== "channel") return NOT_A_CHANNEL;
+  if (message.sticker) return STICKER;
+  if (isOwnMedia(message)) return OWN_MEDIA;
+  return OTHER_TYPE;
+}
+
+function isOwnMedia(message: Message): boolean {
+  return (
+    (message.photo?.length ?? 0) > 0 ||
+    message.video !== undefined ||
+    message.animation !== undefined ||
+    message.document !== undefined ||
+    message.audio !== undefined ||
+    message.voice !== undefined ||
+    message.video_note !== undefined
+  );
 }
 
 type MediaKind = "photo" | "video" | "animation" | "document" | "audio" | "voice" | "video_note";

@@ -1,6 +1,6 @@
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { MessageEntity } from "grammy/types";
+import type { Message, MessageEntity } from "grammy/types";
 import { describe, expect, it, vi } from "vitest";
 import { createHarness, scriptedMedia } from "./harness.js";
 import { alreadySaved, savedClipping, summary, wroteJournal } from "./reply-text.js";
@@ -8,6 +8,7 @@ import {
   channelForward,
   chatForward,
   hiddenUserForward,
+  mediaFile,
   photoMessage,
   photoSize,
   plainText,
@@ -44,6 +45,10 @@ const at1636 = Date.UTC(2026, 9, 17, 13, 36, 0) / 1000;
 const at1640 = Date.UTC(2026, 9, 17, 13, 40, 0) / 1000;
 const saturday = "Saturday, October 17th, 2026";
 const postText = "Участились supply chain атаки – обновляйте зависимости";
+const NOT_A_CHANNEL = "Пересылка не из канала. Принимаю обычный текст и посты каналов.";
+const STICKER = "Стикер не сохраняю. Принимаю обычный текст и посты каналов.";
+const OWN_MEDIA = "Своё медиа не сохраняю. Принимаю обычный текст и посты каналов.";
+const OTHER_TYPE = "Такой тип сообщения не сохраняю. Принимаю обычный текст и посты каналов.";
 
 describe("inbox", () => {
   it("saves a public channel text post in the vault timezone", async () => {
@@ -110,17 +115,100 @@ created: 2026-04-02
     ["user forward", userForward],
     ["hidden user forward", hiddenUserForward],
     ["group forward", chatForward],
-    ["sticker", stickerMessage],
-    ["non-forwarded photo", photoMessage],
-  ])("%s is unsupported and writes nothing", async (_label, build) => {
+  ])("%s is refused as a non-channel forward and writes nothing", async (_label, build) => {
     const harness = await createHarness();
     try {
       const message = build();
       await harness.inbox.handle(message);
       expect(harness.replies).toEqual([
-        { chatId: 100, messageId: message.message_id, text: "не поддерживается" },
+        { chatId: 100, messageId: message.message_id, text: NOT_A_CHANNEL },
       ]);
       expect(await readdir(harness.root)).toEqual([]);
+      await harness.clock.advance(3000);
+      expect(harness.replies).toEqual([
+        { chatId: 100, messageId: message.message_id, text: NOT_A_CHANNEL },
+      ]);
+    } finally {
+      await harness.cleanup();
+    }
+  });
+
+  it("refuses a non-channel forward that is a sticker before treating it as a sticker", async () => {
+    const harness = await createHarness();
+    try {
+      const message = userForward();
+      delete message.text;
+      message.sticker = stickerMessage().sticker;
+      await harness.inbox.handle(message);
+      expect(harness.replies).toEqual([{ chatId: 100, messageId: message.message_id, text: NOT_A_CHANNEL }]);
+      expect(await readdir(harness.root)).toEqual([]);
+    } finally {
+      await harness.cleanup();
+    }
+  });
+
+  it("refuses a non-channel forward that also carries media before own media", async () => {
+    const harness = await createHarness();
+    try {
+      const message = userForward();
+      delete message.text;
+      message.photo = [photoSize("fwd-photo", 80, 80)];
+      await harness.inbox.handle(message);
+      expect(harness.replies).toEqual([{ chatId: 100, messageId: message.message_id, text: NOT_A_CHANNEL }]);
+      expect(await readdir(harness.root)).toEqual([]);
+    } finally {
+      await harness.cleanup();
+    }
+  });
+
+  it("refuses a sticker and writes nothing", async () => {
+    const harness = await createHarness();
+    try {
+      const message = stickerMessage();
+      await harness.inbox.handle(message);
+      expect(harness.replies).toEqual([{ chatId: 100, messageId: message.message_id, text: STICKER }]);
+      expect(await readdir(harness.root)).toEqual([]);
+      await harness.clock.advance(3000);
+      expect(harness.replies).toEqual([{ chatId: 100, messageId: message.message_id, text: STICKER }]);
+    } finally {
+      await harness.cleanup();
+    }
+  });
+
+  it("refuses any other message type and writes nothing", async () => {
+    const harness = await createHarness();
+    try {
+      const message = plainText("unused");
+      delete message.text;
+      message.message_id = 9;
+      message.location = { latitude: 55.75, longitude: 37.62 };
+      await harness.inbox.handle(message);
+      expect(harness.replies).toEqual([{ chatId: 100, messageId: message.message_id, text: OTHER_TYPE }]);
+      expect(await readdir(harness.root)).toEqual([]);
+      await harness.clock.advance(3000);
+      expect(harness.replies).toEqual([{ chatId: 100, messageId: message.message_id, text: OTHER_TYPE }]);
+    } finally {
+      await harness.cleanup();
+    }
+  });
+
+  it.each([
+    ["photo", () => photoMessage()],
+    ["video", () => ownMedia(20, { video: { ...mediaFile("video"), width: 16, height: 16, duration: 1 } })],
+    ["animation", () => ownMedia(21, { animation: { ...mediaFile("anim"), width: 16, height: 16, duration: 1 } })],
+    ["document", () => ownMedia(22, { document: mediaFile("doc") })],
+    ["audio", () => ownMedia(23, { audio: { ...mediaFile("audio"), duration: 1 } })],
+    ["voice", () => ownMedia(24, { voice: { ...mediaFile("voice"), duration: 1 } })],
+    ["video note", () => ownMedia(25, { video_note: { ...mediaFile("round"), length: 240, duration: 1 } })],
+  ])("refuses own %s and writes nothing", async (_label, build) => {
+    const harness = await createHarness();
+    try {
+      const message = build();
+      await harness.inbox.handle(message);
+      expect(harness.replies).toEqual([{ chatId: 100, messageId: message.message_id, text: OWN_MEDIA }]);
+      expect(await readdir(harness.root)).toEqual([]);
+      await harness.clock.advance(3000);
+      expect(harness.replies).toEqual([{ chatId: 100, messageId: message.message_id, text: OWN_MEDIA }]);
     } finally {
       await harness.cleanup();
     }
@@ -1310,6 +1398,12 @@ tags:
     }
   });
 });
+
+function ownMedia(messageId: number, extra: Partial<Message>): Message {
+  const message = photoMessage();
+  delete message.photo;
+  return { ...message, ...extra, message_id: messageId };
+}
 
 function dailyNote(date: string, heading: string, entries: readonly string[]): string {
   return `---

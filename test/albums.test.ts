@@ -408,8 +408,8 @@ describe("inbox albums", () => {
       });
       expect(media.calls).toEqual([]);
       expect(harness.replies).toEqual([
-        { chatId: 100, messageId: 6, text: "не поддерживается" },
-        { chatId: 100, messageId: 7, text: "не поддерживается" },
+        { chatId: 100, messageId: 6, text: "Своё медиа не сохраняю. Принимаю обычный текст и посты каналов." },
+        { chatId: 100, messageId: 7, text: "Своё медиа не сохраняю. Принимаю обычный текст и посты каналов." },
       ]);
 
       await settle(harness);
