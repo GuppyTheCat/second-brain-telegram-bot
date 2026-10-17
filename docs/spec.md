@@ -10,7 +10,7 @@ I also lose the reason I saved a post. When I forward something, I usually have 
 
 A personal Telegram bot, built with grammY and running on my server (elven-fortress), that writes directly into the vault folder that Syncthing already syncs to all my devices.
 
-I forward a channel post to the bot and a clipping note appears at the vault root, in the same format as my existing Telegram clippings, with media downloaded and embedded inline. Plain text I send, and those forwards, also land in the day's journal as one entry when they arrive inside a short window. A forward is recorded there as a post callout that links the clipping. Forwarding a post that is already saved never creates a duplicate. The bot replies with the note name when a clipping is saved, and with the journal time when the entry is written. Only I can use the bot.
+I forward a channel post to the bot and a clipping note appears at the vault root, in the same format as my existing Telegram clippings, with media downloaded and embedded inline. Plain text I send, and those forwards, also land in the day's journal as one entry when they arrive inside a short window. A forward is recorded there as a post callout that links the clipping. Forwarding a post that is already saved never creates a duplicate. When the journal window closes, the bot sends one plain-text summary as a reply to the first message of that entry. A clipping does not get its own immediate reply. Only I can use the bot.
 
 ## User Stories
 
@@ -40,9 +40,9 @@ I forward a channel post to the bot and a clipping note appears at the vault roo
 24. As the vault owner, I want a message that arrives after the window to start another journal entry, so that later thoughts stay separate.
 25. As the vault owner, I want forwarding an already-saved post to never create a second note, so that my vault has no duplicates.
 26. As the vault owner, I want a duplicate forward to still add a journal callout pointing at the existing note, so that the daily note records that I forwarded it again.
-27. As the vault owner, I want the bot to reply with the saved note's name, so that I get immediate confirmation.
-28. As the vault owner, I want a distinct reply when a post was already saved, so that I understand why no new note appeared.
-29. As the vault owner, I want messages that aren't plain text or channel post forwards (forwards from users or groups, stickers, my own media) to be answered with "не поддерживается", so that I know the bot ignored them on purpose.
+27. As the vault owner, I want one summary when the journal window closes, as a reply to the first message of that entry, so that I can open the daily note and each clipping from the chat.
+28. As the vault owner, I want a duplicate forward to appear in that summary as «Уже было» without a media line, so that I understand why no new note appeared.
+29. As the vault owner, I want a message that is not plain text or a channel post forward to be answered at once with the refusal for its class, so that I know the bot ignored it on purpose.
 30. As the vault owner, I want forwards from private channels (no public username) to be supported, so that I can save posts from channels I'm subscribed to privately.
 31. As the vault owner, I want a private channel's `telegram` property to contain just the channel name and its `source` to use the private post link format, so that the note is still informative and deduplicable.
 32. As the vault owner, I want two different posts that would get the same filename to both be saved under distinct filenames, so that no note is overwritten.
@@ -56,7 +56,7 @@ I forward a channel post to the bot and a clipping note appears at the vault roo
 40. As the vault owner, I want the bot to run as a Docker Compose service that restarts automatically, so that it survives crashes and server reboots like my other services.
 41. As the vault owner, I want all configuration (bot token, allowed user ID, proxy URL, vault path, timezone, comment window) passed through environment variables, so that secrets stay out of the repository.
 42. As the vault owner, I want the bot to log what it saved and any errors, so that I can troubleshoot on the server.
-43. As the vault owner, I want a failed media download (other than the size limit) to still produce the note with a "media not downloaded" line and an error mention in the reply, so that the post isn't lost because of one file.
+43. As the vault owner, I want a failed media download (other than the size limit) to still produce the note with a "media not downloaded" line, and the summary's «Сохранил» block to include «не скачано», so that the post isn't lost because of one file.
 44. As the vault owner, I want edited messages to be ignored, so that editing my comment in the chat doesn't create surprises in the vault.
 
 ## Implementation Decisions
@@ -80,6 +80,7 @@ I forward a channel post to the bot and a clipping note appears at the vault roo
 - Timezone (default `Europe/Moscow`).
 - Comment window in milliseconds (default around 3000).
 - Album window in milliseconds (default around 1500). Each new part of a media group restarts it.
+- Obsidian vault name for reply links (`OBSIDIAN_VAULT`, default `second-brain`).
 
 **Modules**
 
@@ -94,13 +95,14 @@ I forward a channel post to the bot and a clipping note appears at the vault roo
 
 - A *channel forward* is a message whose forward origin is of type "channel". Every other forward origin (user, hidden user, chat/group) is unsupported.
 - *Plain text* is a message with no forward origin and string `text`. It joins the journal.
-- Anything else (stickers, non-forwarded media, forwards from people or groups) is unsupported and gets "не поддерживается".
+- Anything else is refused at once, as a reply to that message, and is not part of the summary. The class is checked in this order: the forward origin is not a channel; a sticker; the user's own photo, video, animation, document, audio, voice, or video note; anything else. The sentences are listed under Replies.
 
 **Journal grouping**
 
 - Plain text and channel forwards share one journal buffer. Anything that arrives while the gap stays inside the comment window (`COMMENT_WINDOW_MS`, default 3000) is the same entry, in arrival order. Each new text or forward restarts the window. The heading uses the first part's time.
-- The bot writes the entry once, when the window closes, into `Periodic/Daily/YYYY-MM-DD.md` (date and `### HH:mm` from the message time in the configured timezone), then replies once with `YYYY-MM-DD HH:mm`.
-- Text stays as sent. A channel forward is recorded as a two-line callout: `> [!post]` and `> [[note name]]`. The clipping is saved immediately, with no `comment`, and its reply (the note name, or «уже сохранено») is separate from the journal reply.
+- The bot writes the entry once, when the window closes, into `Periodic/Daily/YYYY-MM-DD.md` (date and `### HH:mm` from the message time in the configured timezone), then sends one summary as a reply to the first message of that entry.
+- Text stays as sent. A channel forward is recorded as a two-line callout: `> [!post]` and `> [[note name]]`. The clipping is saved immediately, with no `comment`, and does not get its own reply. An album is still one clipping.
+- If the daily-note write fails, the bot still answers and the buffer stays for retry. The failure text is sent once for an unchanged buffer, so a persistent error does not answer every 3 seconds. A later successful write sends the normal summary. If a new clipping joins after the failure answer, the next failed flush may answer again, because there is new saved work.
 - A duplicate forward still adds that callout, pointing at the existing note.
 - A missing daily note is created from the daily template skeleton (frontmatter, English heading such as `Saturday, October 17th, 2026`, `## Notes`, `## Journal`, the task embeds) without the "Add some notes here..." placeholder. The entry goes under `## Journal`. An existing file gets the entry at the end of `## Journal`, before the `---` that ends that section. That divider is a `---` whose next non-blank line is an embed such as `![[tasks-default.base#Today]]`, or the end of the file. A `---` inside the entry is stored as sent. If `## Journal` is missing, the section is added before that same kind of divider after the frontmatter.
 - An album is one clipping and one callout, added when the album note is saved. The journal timer does not flush while that album is still open.
@@ -137,7 +139,7 @@ I forward a channel post to the bot and a clipping note appears at the vault roo
 **Deduplication**
 
 - Before creating a note, the Inbox asks the vault store for an existing note whose `source` equals the post link. Root-level notes are scanned on demand; there's no persistent index or database, because the vault is the source of truth and is also edited from other devices.
-- On a match: no new note and no media download. The reply names the existing note. The journal still records a callout to that note.
+- On a match: no new note and no media download. The summary names the existing note with «Уже было» and no media line. The journal still records a callout to that note.
 
 **Daily journal**
 
@@ -147,11 +149,48 @@ I forward a channel post to the bot and a clipping note appears at the vault roo
 
 **Replies (Russian)**
 
-- Saved: the note name.
-- Already saved: «уже сохранено» plus the existing note name.
-- Journal entry written: `YYYY-MM-DD HH:mm` from the first part, in the configured timezone.
-- Media problems: the note name plus a short mention of which media weren't downloaded.
-- Unsupported: "не поддерживается".
+Replies are plain text. The bot does not set a parse mode. The vault name comes from `OBSIDIAN_VAULT`, default `second-brain`. A link is `obsidian://open?vault=` + `encodeURIComponent(vault)` + `&file=` + `encodeURIComponent(path)`. The daily path is `Periodic/Daily/YYYY-MM-DD` without `.md`. The clipping path is the note name without `.md`.
+
+One summary is sent when the 3-second journal window closes, as a reply to the first message of that entry. A clipping no longer gets its own immediate reply. An album is still one clipping.
+
+A refused message is answered at once, as a reply to itself, and is not part of the summary. Refusals are checked in this order:
+
+- forward origin is not a channel: `Пересылка не из канала. Принимаю обычный текст и посты каналов.`
+- sticker: `Стикер не сохраняю. Принимаю обычный текст и посты каналов.`
+- own photo, video, animation, document, audio, voice, or video note: `Своё медиа не сохраняю. Принимаю обычный текст и посты каналов.`
+- anything else: `Такой тип сообщения не сохраняю. Принимаю обычный текст и посты каналов.`
+
+A failed daily-note write still answers. The buffer retries as it does now. The failure text is sent once per unchanged buffer, so a persistent error does not answer every 3 seconds. A later successful write sends the normal summary. If a new clipping joins after the failure answer, the next failed flush may answer again, because there is new saved work.
+
+«не скачано» belongs only on «Сохранил». A repeat does not download, so «Уже было» has no media line.
+
+Success, text plus a new post:
+
+```
+Записал в журнал 2026-10-17 18:28
+obsidian://open?vault=second-brain&file=Periodic%2FDaily%2F2026-10-17
+
+Сохранил: 2026-10-17 12-01 Channel
+obsidian://open?vault=second-brain&file=2026-10-17%2012-01%20Channel
+```
+
+A duplicate block, after the journal block when the daily note was written:
+
+```
+Уже было: 2026-10-16 09-00 Channel
+obsidian://open?vault=second-brain&file=2026-10-16%2009-00%20Channel
+```
+
+Journal write failed, note already on disk:
+
+```
+Не записал в журнал 2026-10-17 18:28
+
+Сохранил: 2026-10-17 12-01 Channel
+obsidian://open?vault=second-brain&file=2026-10-17%2012-01%20Channel
+```
+
+Only text, journal write failed: `Не записал в журнал 2026-10-17 18:28`.
 
 ## Testing Decisions
 
