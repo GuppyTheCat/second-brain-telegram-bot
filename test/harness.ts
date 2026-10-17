@@ -8,6 +8,7 @@ import { createVaultStore } from "../src/vault.js";
 
 export interface RecordedReply {
   chatId: number;
+  messageId: number;
   text: string;
 }
 
@@ -50,8 +51,8 @@ export async function createHarness(timezone = "Europe/Moscow", media?: MediaFet
     vault: createVaultStore(root),
     media: fetcher,
     reply: {
-      async reply(chatId, text) {
-        replies.push({ chatId, text });
+      async reply(chatId, messageId, text) {
+        replies.push({ chatId, messageId, text });
       },
     },
     clock,

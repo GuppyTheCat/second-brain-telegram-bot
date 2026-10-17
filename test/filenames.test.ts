@@ -34,7 +34,9 @@ describe("private channels and filenames", () => {
           body: "секрет",
         }),
       );
-      expect(harness.replies).toEqual([{ chatId: 100, text: "2026-04-01 00-00 Secret Channel" }]);
+      expect(harness.replies).toEqual([
+        { chatId: 100, messageId: 1, text: "2026-04-01 00-00 Secret Channel" },
+      ]);
     } finally {
       await harness.cleanup();
     }
@@ -61,8 +63,8 @@ describe("private channels and filenames", () => {
       expect(await readdir(harness.root)).toEqual([filename]);
       expect(await readFile(path.join(harness.root, filename), "utf8")).toBe(written);
       expect(harness.replies).toEqual([
-        { chatId: 100, text: "2026-04-01 00-00 Secret Channel" },
-        { chatId: 100, text: "уже сохранено: 2026-04-01 00-00 Secret Channel" },
+        { chatId: 100, messageId: 1, text: "2026-04-01 00-00 Secret Channel" },
+        { chatId: 100, messageId: 1, text: "уже сохранено: 2026-04-01 00-00 Secret Channel" },
       ]);
     } finally {
       await harness.cleanup();
@@ -123,7 +125,7 @@ describe("private channels and filenames", () => {
           }),
         );
       }
-      expect(harness.replies).toEqual(names.map((text) => ({ chatId: 100, text })));
+      expect(harness.replies).toEqual(names.map((text) => ({ chatId: 100, messageId: 1, text })));
     } finally {
       await harness.cleanup();
     }
@@ -148,7 +150,7 @@ describe("private channels and filenames", () => {
           body: "новый",
         }),
       );
-      expect(harness.replies).toEqual([{ chatId: 100, text: `${noteName} 2` }]);
+      expect(harness.replies).toEqual([{ chatId: 100, messageId: 1, text: `${noteName} 2` }]);
     } finally {
       await harness.cleanup();
     }
@@ -179,7 +181,9 @@ describe("private channels and filenames", () => {
           body: "пост",
         }),
       );
-      expect(harness.replies).toEqual([{ chatId: 100, text: "2026-04-01 00-00 A B C D E 🤖" }]);
+      expect(harness.replies).toEqual([
+        { chatId: 100, messageId: 1, text: "2026-04-01 00-00 A B C D E 🤖" },
+      ]);
     } finally {
       await harness.cleanup();
     }
@@ -240,7 +244,7 @@ describe("private channels and filenames", () => {
           body: "длинный",
         }),
       );
-      expect(harness.replies).toEqual([{ chatId: 100, text: saved }]);
+      expect(harness.replies).toEqual([{ chatId: 100, messageId: 1, text: saved }]);
     } finally {
       await harness.cleanup();
     }
@@ -276,8 +280,8 @@ describe("private channels and filenames", () => {
         }),
       );
       expect(harness.replies).toEqual([
-        { chatId: 100, text: noteName },
-        { chatId: 100, text: suffixed },
+        { chatId: 100, messageId: 1, text: noteName },
+        { chatId: 100, messageId: 1, text: suffixed },
       ]);
     } finally {
       await harness.cleanup();

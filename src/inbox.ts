@@ -151,7 +151,7 @@ export function createInbox(deps: InboxDependencies): Inbox {
       throw error;
     }
     journal = null;
-    await deps.reply.reply(open.chatId, when);
+    await deps.reply.reply(open.chatId, open.messageId, when);
     deps.onOutcome?.({
       type: "journal",
       messageId: open.messageId,
@@ -180,7 +180,7 @@ export function createInbox(deps: InboxDependencies): Inbox {
       return { type: "buffered", messageId: message.message_id, class: "text" };
     }
 
-    await deps.reply.reply(message.chat.id, UNSUPPORTED);
+    await deps.reply.reply(message.chat.id, message.message_id, UNSUPPORTED);
     return { type: "unsupported", messageId: message.message_id, class: "unsupported" };
   }
 
@@ -238,7 +238,7 @@ export function createInbox(deps: InboxDependencies): Inbox {
     if (!primary) throw new Error("album has no parts");
     const origin = primary.forward_origin;
     if (origin?.type !== "channel") {
-      await deps.reply.reply(primary.chat.id, UNSUPPORTED);
+      await deps.reply.reply(primary.chat.id, primary.message_id, UNSUPPORTED);
       return { type: "unsupported", messageId: primary.message_id, class: "unsupported" };
     }
     const input: ClippingInput = {
@@ -254,7 +254,7 @@ export function createInbox(deps: InboxDependencies): Inbox {
     const draft = renderClipping(input);
     const existing = await deps.vault.findBySource(draft.source);
     if (existing) {
-      await deps.reply.reply(primary.chat.id, `уже сохранено: ${existing.noteName}`);
+      await deps.reply.reply(primary.chat.id, primary.message_id, `уже сохранено: ${existing.noteName}`);
       return {
         type: "duplicate",
         noteName: existing.noteName,
@@ -274,7 +274,11 @@ export function createInbox(deps: InboxDependencies): Inbox {
       }
       throw error;
     }
-    await deps.reply.reply(primary.chat.id, savedReply(noteName, downloaded.problems, downloaded.total));
+    await deps.reply.reply(
+      primary.chat.id,
+      primary.message_id,
+      savedReply(noteName, downloaded.problems, downloaded.total),
+    );
     return { type: "saved", noteName, messageId: primary.message_id, class: messageClass };
   }
 

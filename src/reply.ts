@@ -1,3 +1,3 @@
 export interface ReplySink {
-  reply(chatId: number, text: string): Promise<void>;
+  reply(chatId: number, messageId: number, text: string): Promise<void>;
 }

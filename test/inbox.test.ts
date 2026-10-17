@@ -76,7 +76,7 @@ created: 2026-04-02
 **Участились**${postText.slice(10)}
 `);
       expect(harness.replies).toEqual([
-        { chatId: 100, text: "2026-04-01 00-00 Denis Sexy IT 🤖" },
+        { chatId: 100, messageId: 1, text: "2026-04-01 00-00 Denis Sexy IT 🤖" },
       ]);
     } finally {
       await harness.cleanup();
@@ -101,7 +101,9 @@ created: 2026-04-02
       expect(await readFile(path.join(harness.root, filename), "utf8")).toContain(
         'title: "Release: Notes"\n',
       );
-      expect(harness.replies).toEqual([{ chatId: 100, text: "2026-04-01 13-00 Release Notes" }]);
+      expect(harness.replies).toEqual([
+        { chatId: 100, messageId: 1, text: "2026-04-01 13-00 Release Notes" },
+      ]);
     } finally {
       await harness.cleanup();
     }
@@ -116,8 +118,11 @@ created: 2026-04-02
   ])("%s is unsupported and writes nothing", async (_label, build) => {
     const harness = await createHarness();
     try {
-      await harness.inbox.handle(build());
-      expect(harness.replies).toEqual([{ chatId: 100, text: "не поддерживается" }]);
+      const message = build();
+      await harness.inbox.handle(message);
+      expect(harness.replies).toEqual([
+        { chatId: 100, messageId: message.message_id, text: "не поддерживается" },
+      ]);
       expect(await readdir(harness.root)).toEqual([]);
     } finally {
       await harness.cleanup();
@@ -142,8 +147,8 @@ created: 2026-04-02
       expect(await readdir(harness.root)).toEqual([filename]);
       expect(await readFile(path.join(harness.root, filename), "utf8")).toBe(written);
       expect(harness.replies).toEqual([
-        { chatId: 100, text: noteName },
-        { chatId: 100, text: `уже сохранено: ${noteName}` },
+        { chatId: 100, messageId: 1, text: noteName },
+        { chatId: 100, messageId: 1, text: `уже сохранено: ${noteName}` },
       ]);
     } finally {
       await harness.cleanup();
@@ -185,7 +190,7 @@ source: https://t.me/denissexy/2
 
       expect(await readdir(harness.root)).toEqual([filename]);
       expect(await readFile(path.join(harness.root, filename), "utf8")).toBe(handwritten);
-      expect(harness.replies).toEqual([{ chatId: 100, text: `уже сохранено: ${noteName}` }]);
+      expect(harness.replies).toEqual([{ chatId: 100, messageId: 1, text: `уже сохранено: ${noteName}` }]);
     } finally {
       await harness.cleanup();
     }
@@ -218,7 +223,7 @@ source: https://t.me/denissexy/11330
         [".syncthing.old.md.tmp", "loose.txt", "nested", "no-frontmatter.md", filename].sort(),
       );
       expect(harness.replies).toEqual([
-        { chatId: 100, text: "2026-04-01 00-00 Denis Sexy IT 🤖" },
+        { chatId: 100, messageId: 1, text: "2026-04-01 00-00 Denis Sexy IT 🤖" },
       ]);
     } finally {
       await harness.cleanup();
@@ -253,8 +258,8 @@ source: https://t.me/denissexy/11330
       expect(second).toContain("source: https://t.me/denissexy/11331\n");
       expect(second).toContain("второй\n");
       expect(harness.replies).toEqual([
-        { chatId: 100, text: "2026-04-01 00-00 Denis Sexy IT 🤖" },
-        { chatId: 100, text: "2026-04-01 00-02 Denis Sexy IT 🤖" },
+        { chatId: 100, messageId: 1, text: "2026-04-01 00-00 Denis Sexy IT 🤖" },
+        { chatId: 100, messageId: 1, text: "2026-04-01 00-02 Denis Sexy IT 🤖" },
       ]);
     } finally {
       await harness.cleanup();
@@ -296,7 +301,7 @@ source: https://t.me/denissexy/11330
       expect(await dailyFile(harness.root, "2026-10-17")).toBe(
         dailyNote("2026-10-17", saturday, [entry("16:36", "Можно попробовать эту прогу для работы с PDF")]),
       );
-      expect(harness.replies).toEqual([{ chatId: 100, text: "2026-10-17 16:36" }]);
+      expect(harness.replies).toEqual([{ chatId: 100, messageId: 7, text: "2026-10-17 16:36" }]);
       expect(await readdir(harness.root)).toEqual(["Periodic"]);
     } finally {
       await harness.cleanup();
@@ -333,14 +338,16 @@ source: https://t.me/denissexy/11330
       expect(harness.replies).toEqual([]);
 
       await rm(blocker);
-      await harness.inbox.handle(plainText("ещё", at1640));
+      const later = plainText("ещё", at1640);
+      later.message_id = 9;
+      await harness.inbox.handle(later);
       await harness.clock.advance(3000);
       await harness.inbox.idle();
 
       expect(await dailyFile(harness.root, "2026-10-17")).toBe(
         dailyNote("2026-10-17", saturday, [entry("16:36", "не потерять\nещё")]),
       );
-      expect(harness.replies).toEqual([{ chatId: 100, text: "2026-10-17 16:36" }]);
+      expect(harness.replies).toEqual([{ chatId: 100, messageId: 7, text: "2026-10-17 16:36" }]);
     } finally {
       await harness.cleanup();
     }
@@ -361,7 +368,7 @@ source: https://t.me/denissexy/11330
       expect(await dailyFile(harness.root, "2026-10-17")).toBe(
         dailyNote("2026-10-17", saturday, [entry("09:00", "уже было"), entry("16:36", "ещё")]),
       );
-      expect(harness.replies).toEqual([{ chatId: 100, text: "2026-10-17 16:36" }]);
+      expect(harness.replies).toEqual([{ chatId: 100, messageId: 7, text: "2026-10-17 16:36" }]);
       const names = await readdir(path.join(harness.root, "Periodic", "Daily"));
       expect(names).toEqual(["2026-10-17.md"]);
     } finally {
@@ -375,9 +382,9 @@ source: https://t.me/denissexy/11330
     try {
       await harness.inbox.handle(plainText("Можно попробовать эту прогу для работы с PDF", at1636));
       await harness.clock.advance(2500);
-      await harness.inbox.handle(
-        plainText("https://www.reddit.com/r/BestGitHubRepos/s/LrV8Q33YSc", at1636 + 20),
-      );
+      const later = plainText("https://www.reddit.com/r/BestGitHubRepos/s/LrV8Q33YSc", at1636 + 20);
+      later.message_id = 8;
+      await harness.inbox.handle(later);
       await harness.clock.advance(2999);
       await harness.inbox.idle();
       expect(harness.replies).toEqual([]);
@@ -393,7 +400,7 @@ source: https://t.me/denissexy/11330
           ),
         ]),
       );
-      expect(harness.replies).toEqual([{ chatId: 100, text: "2026-10-17 16:36" }]);
+      expect(harness.replies).toEqual([{ chatId: 100, messageId: 7, text: "2026-10-17 16:36" }]);
     } finally {
       await harness.cleanup();
     }
@@ -422,7 +429,9 @@ source: https://t.me/denissexy/11330
       await harness.inbox.handle(plainText("первая", at1636));
       await harness.clock.advance(3000);
       await harness.inbox.idle();
-      await harness.inbox.handle(plainText("вторая", at1640));
+      const second = plainText("вторая", at1640);
+      second.message_id = 8;
+      await harness.inbox.handle(second);
       await harness.clock.advance(3000);
       await harness.inbox.idle();
 
@@ -430,8 +439,8 @@ source: https://t.me/denissexy/11330
         dailyNote("2026-10-17", saturday, [entry("16:36", "первая"), entry("16:40", "вторая")]),
       );
       expect(harness.replies).toEqual([
-        { chatId: 100, text: "2026-10-17 16:36" },
-        { chatId: 100, text: "2026-10-17 16:40" },
+        { chatId: 100, messageId: 7, text: "2026-10-17 16:36" },
+        { chatId: 100, messageId: 8, text: "2026-10-17 16:40" },
       ]);
     } finally {
       await harness.cleanup();
@@ -642,7 +651,7 @@ tags:
       const content = await dailyFile(harness.root, "2026-10-17");
       expect(content).toContain("# Saturday, October 17th, 2026\n");
       expect(content).toContain("### 00:00\nночь\n");
-      expect(harness.replies).toEqual([{ chatId: 100, text: "2026-10-17 00:00" }]);
+      expect(harness.replies).toEqual([{ chatId: 100, messageId: 7, text: "2026-10-17 00:00" }]);
     } finally {
       await harness.cleanup();
     }
@@ -665,7 +674,7 @@ tags:
       const noteName = "2026-04-01 00-00 Denis Sexy IT 🤖";
       const clipping = await readFile(path.join(harness.root, filename), "utf8");
       expect(clipping).not.toContain("comment:");
-      expect(harness.replies).toEqual([{ chatId: 100, text: noteName }]);
+      expect(harness.replies).toEqual([{ chatId: 100, messageId: 1, text: noteName }]);
       await expect(dailyFile(harness.root, "2026-04-02")).rejects.toMatchObject({ code: "ENOENT" });
 
       await harness.clock.advance(1);
@@ -676,8 +685,8 @@ tags:
         dailyNote("2026-04-02", "Thursday, April 2nd, 2026", [entry("01:15", postCallout(noteName))]),
       );
       expect(harness.replies).toEqual([
-        { chatId: 100, text: noteName },
-        { chatId: 100, text: "2026-04-02 01:15" },
+        { chatId: 100, messageId: 1, text: noteName },
+        { chatId: 100, messageId: 1, text: "2026-04-02 01:15" },
       ]);
     } finally {
       await harness.cleanup();
@@ -708,8 +717,8 @@ tags:
         ]),
       );
       expect(harness.replies).toEqual([
-        { chatId: 100, text: noteName },
-        { chatId: 100, text: "2026-04-02 01:15" },
+        { chatId: 100, messageId: 1, text: noteName },
+        { chatId: 100, messageId: 7, text: "2026-04-02 01:15" },
       ]);
     } finally {
       await harness.cleanup();
@@ -743,10 +752,10 @@ tags:
         ]),
       );
       expect(harness.replies).toEqual([
-        { chatId: 100, text: noteName },
-        { chatId: 100, text: "2026-04-02 01:15" },
-        { chatId: 100, text: `уже сохранено: ${noteName}` },
-        { chatId: 100, text: "2026-04-02 01:15" },
+        { chatId: 100, messageId: 1, text: noteName },
+        { chatId: 100, messageId: 1, text: "2026-04-02 01:15" },
+        { chatId: 100, messageId: 1, text: `уже сохранено: ${noteName}` },
+        { chatId: 100, messageId: 1, text: "2026-04-02 01:15" },
       ]);
     } finally {
       await harness.cleanup();
@@ -786,7 +795,7 @@ tags:
       await harness.clock.advance(1500);
       await harness.inbox.idle();
       expect(await readFile(path.join(harness.root, `${noteName}.md`), "utf8")).not.toContain("comment:");
-      expect(harness.replies).toEqual([{ chatId: 100, text: noteName }]);
+      expect(harness.replies).toEqual([{ chatId: 100, messageId: 10, text: noteName }]);
       await expect(dailyFile(harness.root, "2026-04-02")).rejects.toMatchObject({ code: "ENOENT" });
 
       await harness.clock.advance(2999);
@@ -799,8 +808,8 @@ tags:
         dailyNote("2026-04-02", "Thursday, April 2nd, 2026", [entry("01:15", postCallout(noteName))]),
       );
       expect(harness.replies).toEqual([
-        { chatId: 100, text: noteName },
-        { chatId: 100, text: "2026-04-02 01:15" },
+        { chatId: 100, messageId: 10, text: noteName },
+        { chatId: 100, messageId: 10, text: "2026-04-02 01:15" },
       ]);
     } finally {
       await harness.cleanup();
@@ -847,7 +856,7 @@ tags:
       await harness.clock.advance(1);
       await harness.inbox.idle();
       expect(await readFile(path.join(harness.root, `${noteName}.md`), "utf8")).not.toContain("comment:");
-      expect(harness.replies).toEqual([{ chatId: 100, text: noteName }]);
+      expect(harness.replies).toEqual([{ chatId: 100, messageId: 10, text: noteName }]);
       await expect(dailyFile(harness.root, "2026-04-02")).rejects.toMatchObject({ code: "ENOENT" });
 
       await harness.clock.advance(3000);
@@ -858,8 +867,8 @@ tags:
         ]),
       );
       expect(harness.replies).toEqual([
-        { chatId: 100, text: noteName },
-        { chatId: 100, text: "2026-04-02 01:15" },
+        { chatId: 100, messageId: 10, text: noteName },
+        { chatId: 100, messageId: 7, text: "2026-04-02 01:15" },
       ]);
     } finally {
       await harness.cleanup();
@@ -1089,7 +1098,9 @@ tags:
       );
       const filename = "2026-04-01 00-00 Denis Sexy IT 🤖.md";
       expect(await readFile(path.join(harness.root, filename), "utf8")).toBe(clippingNote("*Hello*"));
-      expect(harness.replies).toEqual([{ chatId: 100, text: "2026-04-01 00-00 Denis Sexy IT 🤖" }]);
+      expect(harness.replies).toEqual([
+        { chatId: 100, messageId: 1, text: "2026-04-01 00-00 Denis Sexy IT 🤖" },
+      ]);
     } finally {
       await harness.cleanup();
     }
@@ -1159,7 +1170,9 @@ async function expectClipping(text: string, entities: MessageEntity[], body: str
     await harness.inbox.handle(channelForward({ text, entities, publishedAt, forwardedAt }));
     const filename = "2026-04-01 00-00 Denis Sexy IT 🤖.md";
     expect(await readFile(path.join(harness.root, filename), "utf8")).toBe(clippingNote(body));
-    expect(harness.replies).toEqual([{ chatId: 100, text: "2026-04-01 00-00 Denis Sexy IT 🤖" }]);
+    expect(harness.replies).toEqual([
+      { chatId: 100, messageId: 1, text: "2026-04-01 00-00 Denis Sexy IT 🤖" },
+    ]);
   } finally {
     await harness.cleanup();
   }

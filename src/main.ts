@@ -11,7 +11,7 @@ async function main(): Promise<void> {
   let getFile: TelegramFileSource["getFile"] = () => {
     throw new Error("bot is not ready");
   };
-  let sendReply: (chatId: number, text: string) => Promise<void> = () => {
+  let sendReply: (chatId: number, messageId: number, text: string) => Promise<void> = () => {
     throw new Error("bot is not ready");
   };
 
@@ -23,7 +23,7 @@ async function main(): Promise<void> {
       getFile: (fileId) => getFile(fileId),
     }),
     reply: {
-      reply: (chatId, text) => sendReply(chatId, text),
+      reply: (chatId, messageId, text) => sendReply(chatId, messageId, text),
     },
     clock: systemClock(),
     onOutcome: logInboxOutcome,
@@ -37,8 +37,10 @@ async function main(): Promise<void> {
 
   const bot = createBot(config, inbox, agent);
   getFile = (fileId) => bot.api.getFile(fileId);
-  sendReply = async (chatId, text) => {
-    await bot.api.sendMessage(chatId, text);
+  sendReply = async (chatId, messageId, text) => {
+    await bot.api.sendMessage(chatId, text, {
+      reply_parameters: { message_id: messageId },
+    });
   };
 
   await bot.start({

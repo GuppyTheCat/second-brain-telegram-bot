@@ -82,7 +82,7 @@ describe("inbox albums", () => {
       expect((await readdir(path.join(harness.root, "Attachments"))).sort()).toEqual(
         [`${noteName} 1.jpg`, `${noteName} 2.jpg`, `${noteName} 3.jpg`].sort(),
       );
-      expect(harness.replies).toEqual([{ chatId: 100, text: noteName }]);
+      expect(harness.replies).toEqual([{ chatId: 100, messageId: 10, text: noteName }]);
       expect(harness.outcomes).toEqual([{ type: "saved", noteName, messageId: 10, class: "album" }]);
     } finally {
       await harness.cleanup();
@@ -107,7 +107,7 @@ describe("inbox albums", () => {
       expect(await readFile(path.join(harness.root, `${noteName}.md`), "utf8")).toBe(
         clipping(`**важно**\n\n![[${noteName} 1.jpg]]\n![[${noteName} 2.jpg]]`),
       );
-      expect(harness.replies).toEqual([{ chatId: 100, text: noteName }]);
+      expect(harness.replies).toEqual([{ chatId: 100, messageId: 10, text: noteName }]);
     } finally {
       await harness.cleanup();
     }
@@ -132,6 +132,7 @@ describe("inbox albums", () => {
       expect(await readFile(path.join(harness.root, `${noteName}.md`), "utf8")).toBe(
         clipping(`первый\n\n**второй**\n\n![[${noteName} 1.jpg]]\n![[${noteName} 2.jpg]]`),
       );
+      expect(harness.replies).toEqual([{ chatId: 100, messageId: 10, text: noteName }]);
     } finally {
       await harness.cleanup();
     }
@@ -183,6 +184,7 @@ describe("inbox albums", () => {
       expect(await attachment(harness.root, `${noteName} 2.jpg`)).toEqual(bytes(20));
       expect(await attachment(harness.root, `${noteName} 3.jpg`)).toEqual(bytes(30));
       expect(await readdir(harness.root)).not.toContain(`${laterNote}.md`);
+      expect(harness.replies).toEqual([{ chatId: 100, messageId: 10, text: noteName }]);
     } finally {
       await harness.cleanup();
     }
@@ -210,7 +212,7 @@ describe("inbox albums", () => {
         [`${noteName} 1.jpg`, `${noteName} 3.jpg`].sort(),
       );
       expect(harness.replies).toEqual([
-        { chatId: 100, text: `${noteName}\nне скачано: 1 из 3 (ошибка загрузки)` },
+        { chatId: 100, messageId: 10, text: `${noteName}\nне скачано: 1 из 3 (ошибка загрузки)` },
       ]);
     } finally {
       await harness.cleanup();
@@ -234,7 +236,11 @@ describe("inbox albums", () => {
         `![[${noteName} 1.jpg]]\nМедиа не скачано (ошибка загрузки): ${source}\nМедиа не скачано (файл больше 20 МБ): ${source}\n`,
       );
       expect(harness.replies).toEqual([
-        { chatId: 100, text: `${noteName}\nне скачано: 2 из 3 (файл больше 20 МБ, ошибка загрузки)` },
+        {
+          chatId: 100,
+          messageId: 10,
+          text: `${noteName}\nне скачано: 2 из 3 (файл больше 20 МБ, ошибка загрузки)`,
+        },
       ]);
     } finally {
       await harness.cleanup();
@@ -261,8 +267,8 @@ describe("inbox albums", () => {
       expect(await readdir(path.join(harness.root, "Attachments"))).toHaveLength(3);
       expect(await readFile(path.join(harness.root, `${noteName}.md`), "utf8")).toBe(written);
       expect(harness.replies).toEqual([
-        { chatId: 100, text: noteName },
-        { chatId: 100, text: `уже сохранено: ${noteName}` },
+        { chatId: 100, messageId: 10, text: noteName },
+        { chatId: 100, messageId: 10, text: `уже сохранено: ${noteName}` },
       ]);
       expect(harness.outcomes).toEqual([
         { type: "saved", noteName, messageId: 10, class: "album" },
@@ -292,8 +298,8 @@ describe("inbox albums", () => {
       expect(await readFile(path.join(harness.root, `${noteName}.md`), "utf8")).toBe(written);
       expect(written).not.toContain("comment:");
       expect(harness.replies).toEqual([
-        { chatId: 100, text: noteName },
-        { chatId: 100, text: `уже сохранено: ${noteName}` },
+        { chatId: 100, messageId: 10, text: noteName },
+        { chatId: 100, messageId: 10, text: `уже сохранено: ${noteName}` },
       ]);
     } finally {
       await harness.cleanup();
@@ -327,8 +333,8 @@ describe("inbox albums", () => {
         }),
       );
       expect(harness.replies).toEqual([
-        { chatId: 100, text: noteName },
-        { chatId: 100, text: laterNote },
+        { chatId: 100, messageId: 10, text: noteName },
+        { chatId: 100, messageId: 20, text: laterNote },
       ]);
     } finally {
       await harness.cleanup();
@@ -357,8 +363,8 @@ describe("inbox albums", () => {
       expect(await attachment(harness.root, `${laterNote} 1.jpg`)).toEqual(bytes(3));
       expect(await attachment(harness.root, `${laterNote} 2.jpg`)).toEqual(bytes(4));
       expect(harness.replies).toEqual([
-        { chatId: 100, text: noteName },
-        { chatId: 100, text: laterNote },
+        { chatId: 100, messageId: 10, text: noteName },
+        { chatId: 100, messageId: 20, text: laterNote },
       ]);
     } finally {
       await harness.cleanup();
@@ -374,15 +380,15 @@ describe("inbox albums", () => {
         channelForward({ text: "мимо", postId: 40, publishedAt: laterPublished, forwardedAt }),
       );
       expect((await readdir(harness.root)).sort()).toEqual([`${laterNote}.md`]);
-      expect(harness.replies).toEqual([{ chatId: 100, text: laterNote }]);
+      expect(harness.replies).toEqual([{ chatId: 100, messageId: 1, text: laterNote }]);
 
       await harness.inbox.handle(part({ postId: 11, fileId: "b" }));
       await settle(harness);
 
       expect(await readFile(path.join(harness.root, `${noteName}.md`), "utf8")).toContain("альбом");
       expect(harness.replies).toEqual([
-        { chatId: 100, text: laterNote },
-        { chatId: 100, text: noteName },
+        { chatId: 100, messageId: 1, text: laterNote },
+        { chatId: 100, messageId: 10, text: noteName },
       ]);
     } finally {
       await harness.cleanup();
@@ -402,8 +408,8 @@ describe("inbox albums", () => {
       });
       expect(media.calls).toEqual([]);
       expect(harness.replies).toEqual([
-        { chatId: 100, text: "не поддерживается" },
-        { chatId: 100, text: "не поддерживается" },
+        { chatId: 100, messageId: 6, text: "не поддерживается" },
+        { chatId: 100, messageId: 7, text: "не поддерживается" },
       ]);
 
       await settle(harness);
