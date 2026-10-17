@@ -173,8 +173,12 @@ export function createInbox(deps: InboxDependencies): Inbox {
       });
     } catch (error) {
       if (!open.failureAnnounced) {
-        await deps.reply.reply(open.chatId, open.messageId, journalSummary({ ...summary, wrote: false }));
-        open.failureAnnounced = true;
+        try {
+          await deps.reply.reply(open.chatId, open.messageId, journalSummary({ ...summary, wrote: false }));
+          open.failureAnnounced = true;
+        } catch {
+          // A failed announcement stays unsent. Callers still see the vault error.
+        }
       }
       armJournal();
       throw error;

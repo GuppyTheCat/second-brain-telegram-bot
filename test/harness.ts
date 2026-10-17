@@ -18,6 +18,7 @@ export interface Harness {
   clock: ManualClock;
   replies: RecordedReply[];
   outcomes: InboxOutcome[];
+  failNextReply: (error: Error) => void;
   cleanup: () => Promise<void>;
 }
 
@@ -42,6 +43,7 @@ export async function createHarness(timezone = "Europe/Moscow", media?: MediaFet
   const replies: RecordedReply[] = [];
   const outcomes: InboxOutcome[] = [];
   const clock = new ManualClock();
+  let nextReplyError: Error | undefined;
   const fetcher: MediaFetcher = media ?? {
     async fetch() {
       throw new Error("media fetcher should not be called");
@@ -52,6 +54,11 @@ export async function createHarness(timezone = "Europe/Moscow", media?: MediaFet
     media: fetcher,
     reply: {
       async reply(chatId, messageId, text) {
+        if (nextReplyError) {
+          const error = nextReplyError;
+          nextReplyError = undefined;
+          throw error;
+        }
         replies.push({ chatId, messageId, text });
       },
     },
@@ -74,6 +81,9 @@ export async function createHarness(timezone = "Europe/Moscow", media?: MediaFet
     clock,
     replies,
     outcomes,
+    failNextReply(error) {
+      nextReplyError = error;
+    },
     async cleanup() {
       await rm(root, { recursive: true, force: true });
     },

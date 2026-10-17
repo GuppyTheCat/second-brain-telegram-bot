@@ -453,6 +453,39 @@ obsidian://open?vault=second-brain&file=2026-10-17%2012-01%20Channel`,
     }
   });
 
+  it("rearms the journal when the failure reply throws", async () => {
+    const harness = await createHarness();
+    try {
+      const blocker = path.join(harness.root, "Periodic", "Daily");
+      await mkdir(path.dirname(blocker), { recursive: true });
+      await writeFile(blocker, "not a directory\n");
+
+      harness.failNextReply(new Error("telegram down"));
+      await harness.inbox.handle(plainText("не потерять", at1636));
+      await expect(harness.clock.advance(3000)).rejects.toThrow("not a directory");
+      expect(harness.replies).toEqual([]);
+
+      await expect(harness.clock.advance(3000)).rejects.toThrow("not a directory");
+      expect(harness.replies).toEqual([
+        { chatId: 100, messageId: 7, text: "Не записал в журнал 2026-10-17 16:36" },
+      ]);
+
+      await rm(blocker);
+      await harness.clock.advance(3000);
+      await harness.inbox.idle();
+
+      expect(await dailyFile(harness.root, "2026-10-17")).toBe(
+        dailyNote("2026-10-17", saturday, [entry("16:36", "не потерять")]),
+      );
+      expect(harness.replies).toEqual([
+        { chatId: 100, messageId: 7, text: "Не записал в журнал 2026-10-17 16:36" },
+        { chatId: 100, messageId: 7, text: wroteJournal("2026-10-17 16:36", "2026-10-17") },
+      ]);
+    } finally {
+      await harness.cleanup();
+    }
+  });
+
   it("creates a missing daily note from the journal skeleton", async () => {
     const harness = await createHarness();
     try {
