@@ -32,6 +32,7 @@ async function main(): Promise<void> {
       commentWindowMs: config.commentWindowMs,
       albumWindowMs: config.albumWindowMs,
       attachmentsDir: config.attachmentsDir,
+      obsidianVault: config.obsidianVault,
     },
   });
 

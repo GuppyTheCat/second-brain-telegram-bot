@@ -11,6 +11,7 @@ export interface InboxConfig {
   commentWindowMs: number;
   albumWindowMs: number;
   attachmentsDir: string;
+  obsidianVault: string;
 }
 
 export interface InboxDependencies {
@@ -61,15 +62,31 @@ function channelMessageId(message: Message): number {
 const UNSUPPORTED = "не поддерживается";
 
 type JournalClass = "text" | "channel" | "album";
+type MediaProblem = "too_large" | "failed";
+
+type JournalPart =
+  | { kind: "text"; text: string }
+  | {
+      kind: "clipping";
+      status: "saved" | "duplicate";
+      noteName: string;
+      problems: readonly MediaProblem[];
+      total: number;
+    };
+
+type ChannelSave =
+  | (Extract<InboxOutcome, { type: "saved" }> & { problems: MediaProblem[]; total: number })
+  | Extract<InboxOutcome, { type: "duplicate" | "unsupported" }>;
 
 interface OpenJournal {
-  parts: string[];
+  parts: JournalPart[];
   startedUnix: number;
   chatId: number;
   messageId: number;
   class: JournalClass;
   generation: number;
   timer: unknown;
+  failureAnnounced: boolean;
 }
 
 interface AlbumPart {
@@ -117,7 +134,7 @@ export function createInbox(deps: InboxDependencies): Inbox {
     }, deps.config.commentWindowMs);
   }
 
-  function joinJournal(message: Message, part: string, messageClass: JournalClass): void {
+  function joinJournal(message: Message, part: JournalPart, messageClass: JournalClass): void {
     if (!journal) {
       journal = {
         parts: [],
@@ -127,9 +144,11 @@ export function createInbox(deps: InboxDependencies): Inbox {
         class: messageClass,
         generation: 0,
         timer: undefined,
+        failureAnnounced: false,
       };
     }
     journal.parts.push(part);
+    journal.failureAnnounced = false;
     if (albums.size === 0) armJournal();
     else holdJournal();
   }
@@ -140,18 +159,28 @@ export function createInbox(deps: InboxDependencies): Inbox {
     const open = journal;
     const moment = formatJournalMoment(open.startedUnix, deps.config.timezone);
     const when = `${moment.date} ${moment.time}`;
+    const summary = {
+      when,
+      date: moment.date,
+      vault: deps.config.obsidianVault,
+      parts: open.parts,
+    };
     try {
       await deps.vault.appendDailyJournal({
         date: moment.date,
         heading: moment.heading,
-        entry: `### ${moment.time}\n${open.parts.join("\n")}`,
+        entry: `### ${moment.time}\n${open.parts.map(journalPartText).join("\n")}`,
       });
     } catch (error) {
+      if (!open.failureAnnounced) {
+        await deps.reply.reply(open.chatId, open.messageId, journalSummary({ ...summary, wrote: false }));
+        open.failureAnnounced = true;
+      }
       armJournal();
       throw error;
     }
     journal = null;
-    await deps.reply.reply(open.chatId, open.messageId, when);
+    await deps.reply.reply(open.chatId, open.messageId, journalSummary({ ...summary, wrote: true }));
     deps.onOutcome?.({
       type: "journal",
       messageId: open.messageId,
@@ -160,23 +189,18 @@ export function createInbox(deps: InboxDependencies): Inbox {
     });
   }
 
-  function postCallout(noteName: string): string {
-    return `> [!post]\n> [[${noteName}]]`;
-  }
-
   async function processMessage(message: Message): Promise<InboxOutcome> {
     const origin = message.forward_origin;
     if (origin?.type === "channel") {
       if (message.media_group_id) return bufferAlbum(message);
-      const outcome = await saveChannelMessages([message], "channel");
-      if (outcome.type === "saved" || outcome.type === "duplicate") {
-        joinJournal(message, postCallout(outcome.noteName), "channel");
-      }
-      return outcome;
+      const saved = await saveChannelMessages([message], "channel");
+      const part = clippingPart(saved);
+      if (part) joinJournal(message, part, "channel");
+      return asOutcome(saved);
     }
 
     if (origin === undefined && typeof message.text === "string") {
-      joinJournal(message, message.text, "text");
+      joinJournal(message, { kind: "text", text: message.text }, "text");
       return { type: "buffered", messageId: message.message_id, class: "text" };
     }
 
@@ -214,26 +238,27 @@ export function createInbox(deps: InboxDependencies): Inbox {
     const messages = [...album.parts]
       .sort((a, b) => channelMessageId(a.message) - channelMessageId(b.message) || a.arrival - b.arrival)
       .map((part) => part.message);
-    let outcome: InboxOutcome;
+    let outcome: ChannelSave;
     try {
       outcome = await saveChannelMessages(messages, "album");
     } catch (error) {
       if (albums.size === 0) armJournal();
       throw error;
     }
-    if (outcome.type === "saved" || outcome.type === "duplicate") {
+    const part = clippingPart(outcome);
+    if (part) {
       const primary = messages[0];
-      if (primary) joinJournal(primary, postCallout(outcome.noteName), "album");
+      if (primary) joinJournal(primary, part, "album");
     } else if (albums.size === 0) {
       armJournal();
     }
-    deps.onOutcome?.(outcome);
+    deps.onOutcome?.(asOutcome(outcome));
   }
 
   async function saveChannelMessages(
     messages: readonly Message[],
     messageClass: "channel" | "album",
-  ): Promise<InboxOutcome> {
+  ): Promise<ChannelSave> {
     const primary = messages[0];
     if (!primary) throw new Error("album has no parts");
     const origin = primary.forward_origin;
@@ -254,7 +279,6 @@ export function createInbox(deps: InboxDependencies): Inbox {
     const draft = renderClipping(input);
     const existing = await deps.vault.findBySource(draft.source);
     if (existing) {
-      await deps.reply.reply(primary.chat.id, primary.message_id, `уже сохранено: ${existing.noteName}`);
       return {
         type: "duplicate",
         noteName: existing.noteName,
@@ -274,12 +298,14 @@ export function createInbox(deps: InboxDependencies): Inbox {
       }
       throw error;
     }
-    await deps.reply.reply(
-      primary.chat.id,
-      primary.message_id,
-      savedReply(noteName, downloaded.problems, downloaded.total),
-    );
-    return { type: "saved", noteName, messageId: primary.message_id, class: messageClass };
+    return {
+      type: "saved",
+      noteName,
+      messageId: primary.message_id,
+      class: messageClass,
+      problems: downloaded.problems,
+      total: downloaded.total,
+    };
   }
 
   async function downloadMedia(
@@ -315,8 +341,6 @@ export function createInbox(deps: InboxDependencies): Inbox {
     },
   };
 }
-
-type MediaProblem = "too_large" | "failed";
 
 type MediaKind = "photo" | "video" | "animation" | "document" | "audio" | "voice" | "video_note";
 
@@ -487,9 +511,58 @@ function mediaFailureLine(reason: MediaProblem, source: string): string {
   return `Медиа не скачано (${why}): ${source}`;
 }
 
-function savedReply(noteName: string, problems: readonly MediaProblem[], total: number): string {
-  if (problems.length === 0 || total === 0) return noteName;
-  return `${noteName}\nне скачано: ${problems.length} из ${total} (${problemSummary(problems)})`;
+function asOutcome(saved: ChannelSave): InboxOutcome {
+  if (saved.type !== "saved") return saved;
+  return { type: "saved", noteName: saved.noteName, messageId: saved.messageId, class: saved.class };
+}
+
+function clippingPart(saved: ChannelSave): JournalPart | undefined {
+  if (saved.type === "saved") {
+    return {
+      kind: "clipping",
+      status: "saved",
+      noteName: saved.noteName,
+      problems: saved.problems,
+      total: saved.total,
+    };
+  }
+  if (saved.type === "duplicate") {
+    return { kind: "clipping", status: "duplicate", noteName: saved.noteName, problems: [], total: 0 };
+  }
+  return undefined;
+}
+
+function journalPartText(part: JournalPart): string {
+  if (part.kind === "text") return part.text;
+  return `> [!post]\n> [[${part.noteName}]]`;
+}
+
+function journalSummary(input: {
+  wrote: boolean;
+  when: string;
+  date: string;
+  vault: string;
+  parts: readonly JournalPart[];
+}): string {
+  const blocks = [
+    input.wrote
+      ? `Записал в журнал ${input.when}\n${obsidianUri(input.vault, `Periodic/Daily/${input.date}`)}`
+      : `Не записал в журнал ${input.when}`,
+  ];
+  for (const part of input.parts) {
+    if (part.kind !== "clipping") continue;
+    const label = part.status === "saved" ? "Сохранил" : "Уже было";
+    const lines = [`${label}: ${part.noteName}`, obsidianUri(input.vault, part.noteName)];
+    if (part.status === "saved" && part.problems.length > 0 && part.total > 0) {
+      lines.push(`не скачано: ${part.problems.length} из ${part.total} (${problemSummary(part.problems)})`);
+    }
+    blocks.push(lines.join("\n"));
+  }
+  return blocks.join("\n\n");
+}
+
+function obsidianUri(vault: string, file: string): string {
+  return `obsidian://open?vault=${encodeURIComponent(vault)}&file=${encodeURIComponent(file)}`;
 }
 
 function problemSummary(problems: readonly MediaProblem[]): string {

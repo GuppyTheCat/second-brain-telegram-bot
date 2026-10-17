@@ -2,6 +2,7 @@ import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { createHarness, scriptedMedia, type MediaScript } from "./harness.js";
+import { alreadySaved, savedClipping, summary, wroteJournal } from "./reply-text.js";
 import { channelForward, mediaFile, photoMessage, photoSize, plainText } from "./messages.js";
 
 const publishedAt = Date.UTC(2026, 2, 31, 21, 0, 0) / 1000;
@@ -40,7 +41,7 @@ describe("inbox media", () => {
       );
       expect(new Uint8Array(await readFile(attachment(harness.root, `${noteName} 1.jpg`)))).toEqual(large);
       expect(await readdir(path.join(harness.root, "Attachments"))).toEqual([`${noteName} 1.jpg`]);
-      expect(harness.replies).toEqual([{ chatId: 100, messageId: 1, text: noteName }]);
+      expect(harness.replies).toEqual([]);
     } finally {
       await harness.cleanup();
     }
@@ -180,8 +181,18 @@ describe("inbox media", () => {
       expect(await readFile(path.join(harness.root, `${noteName}.md`), "utf8")).toBe(
         clipping(`смотри\n\nМедиа не скачано (файл больше 20 МБ): ${source}`),
       );
+      expect(harness.replies).toEqual([]);
+      await harness.clock.advance(3000);
+      await harness.inbox.idle();
       expect(harness.replies).toEqual([
-        { chatId: 100, messageId: 1, text: `${noteName}\nне скачано: 1 из 1 (файл больше 20 МБ)` },
+        {
+          chatId: 100,
+          messageId: 1,
+          text: summary(
+            wroteJournal("2026-04-02 01:15", "2026-04-02"),
+            savedClipping(noteName, "не скачано: 1 из 1 (файл больше 20 МБ)"),
+          ),
+        },
       ]);
     } finally {
       await harness.cleanup();
@@ -204,8 +215,18 @@ describe("inbox media", () => {
       expect(await readFile(path.join(harness.root, `${noteName}.md`), "utf8")).toBe(
         clipping(`Медиа не скачано (ошибка загрузки): ${source}`),
       );
+      expect(harness.replies).toEqual([]);
+      await harness.clock.advance(3000);
+      await harness.inbox.idle();
       expect(harness.replies).toEqual([
-        { chatId: 100, messageId: 1, text: `${noteName}\nне скачано: 1 из 1 (ошибка загрузки)` },
+        {
+          chatId: 100,
+          messageId: 1,
+          text: summary(
+            wroteJournal("2026-04-02 01:15", "2026-04-02"),
+            savedClipping(noteName, "не скачано: 1 из 1 (ошибка загрузки)"),
+          ),
+        },
       ]);
     } finally {
       await harness.cleanup();
@@ -229,9 +250,18 @@ describe("inbox media", () => {
       expect(media.calls).toEqual(["pic"]);
       expect(await readdir(path.join(harness.root, "Attachments"))).toEqual([`${noteName} 1.jpg`]);
       expect(await readFile(path.join(harness.root, `${noteName}.md`), "utf8")).toBe(written);
+      await harness.clock.advance(3000);
+      await harness.inbox.idle();
       expect(harness.replies).toEqual([
-        { chatId: 100, messageId: 1, text: noteName },
-        { chatId: 100, messageId: 1, text: `уже сохранено: ${noteName}` },
+        {
+          chatId: 100,
+          messageId: 1,
+          text: summary(
+            wroteJournal("2026-04-02 01:15", "2026-04-02"),
+            savedClipping(noteName),
+            alreadySaved(noteName),
+          ),
+        },
       ]);
     } finally {
       await harness.cleanup();
@@ -292,8 +322,11 @@ describe("inbox media", () => {
         clipping(`пост\n\n![[${noteName} 1.jpg]]`),
       );
       expect(harness.replies).toEqual([
-        { chatId: 100, messageId: 1, text: noteName },
-        { chatId: 100, messageId: 7, text: "2026-04-02 01:15" },
+        {
+          chatId: 100,
+          messageId: 7,
+          text: summary(wroteJournal("2026-04-02 01:15", "2026-04-02"), savedClipping(noteName)),
+        },
       ]);
       const journal = await readFile(path.join(harness.root, "Periodic", "Daily", "2026-04-02.md"), "utf8");
       expect(journal).toContain(`### 01:15\nк разбору\n> [!post]\n> [[${noteName}]]\n`);
@@ -349,7 +382,7 @@ async function expectSaved(input: {
     expect(await readdir(path.join(harness.root, "Attachments"))).toEqual([input.filename]);
     expect(await readFile(path.join(harness.root, `${noteName}.md`), "utf8")).toBe(clipping(input.body));
     expect(new Uint8Array(await readFile(attachment(harness.root, input.filename)))).toEqual(input.bytes);
-    expect(harness.replies).toEqual([{ chatId: 100, messageId: 1, text: noteName }]);
+    expect(harness.replies).toEqual([]);
   } finally {
     await harness.cleanup();
   }

@@ -7,6 +7,7 @@ export interface Config {
   timezone: string;
   commentWindowMs: number;
   albumWindowMs: number;
+  obsidianVault: string;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv): Config {
@@ -26,6 +27,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     timezone,
     commentWindowMs: optionalInt(env, "COMMENT_WINDOW_MS", 3000),
     albumWindowMs: optionalInt(env, "ALBUM_WINDOW_MS", 1500),
+    obsidianVault: optional(env, "OBSIDIAN_VAULT") ?? "second-brain",
   };
 }
 

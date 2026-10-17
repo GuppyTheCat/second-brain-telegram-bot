@@ -4,6 +4,7 @@ import type { Message, MessageEntity } from "grammy/types";
 import { describe, expect, it } from "vitest";
 import type { Harness } from "./harness.js";
 import { createHarness, scriptedMedia } from "./harness.js";
+import { savedClipping, summary, wroteJournal } from "./reply-text.js";
 import { channelForward, photoMessage, photoSize } from "./messages.js";
 
 const publishedAt = Date.UTC(2026, 2, 31, 21, 0, 0) / 1000;
@@ -82,7 +83,7 @@ describe("inbox albums", () => {
       expect((await readdir(path.join(harness.root, "Attachments"))).sort()).toEqual(
         [`${noteName} 1.jpg`, `${noteName} 2.jpg`, `${noteName} 3.jpg`].sort(),
       );
-      expect(harness.replies).toEqual([{ chatId: 100, messageId: 10, text: noteName }]);
+      expect(harness.replies).toEqual([]);
       expect(harness.outcomes).toEqual([{ type: "saved", noteName, messageId: 10, class: "album" }]);
     } finally {
       await harness.cleanup();
@@ -107,7 +108,7 @@ describe("inbox albums", () => {
       expect(await readFile(path.join(harness.root, `${noteName}.md`), "utf8")).toBe(
         clipping(`**важно**\n\n![[${noteName} 1.jpg]]\n![[${noteName} 2.jpg]]`),
       );
-      expect(harness.replies).toEqual([{ chatId: 100, messageId: 10, text: noteName }]);
+      expect(harness.replies).toEqual([]);
     } finally {
       await harness.cleanup();
     }
@@ -132,7 +133,7 @@ describe("inbox albums", () => {
       expect(await readFile(path.join(harness.root, `${noteName}.md`), "utf8")).toBe(
         clipping(`первый\n\n**второй**\n\n![[${noteName} 1.jpg]]\n![[${noteName} 2.jpg]]`),
       );
-      expect(harness.replies).toEqual([{ chatId: 100, messageId: 10, text: noteName }]);
+      expect(harness.replies).toEqual([]);
     } finally {
       await harness.cleanup();
     }
@@ -184,7 +185,7 @@ describe("inbox albums", () => {
       expect(await attachment(harness.root, `${noteName} 2.jpg`)).toEqual(bytes(20));
       expect(await attachment(harness.root, `${noteName} 3.jpg`)).toEqual(bytes(30));
       expect(await readdir(harness.root)).not.toContain(`${laterNote}.md`);
-      expect(harness.replies).toEqual([{ chatId: 100, messageId: 10, text: noteName }]);
+      expect(harness.replies).toEqual([]);
     } finally {
       await harness.cleanup();
     }
@@ -211,8 +212,17 @@ describe("inbox albums", () => {
       expect((await readdir(path.join(harness.root, "Attachments"))).sort()).toEqual(
         [`${noteName} 1.jpg`, `${noteName} 3.jpg`].sort(),
       );
+      await harness.clock.advance(3000);
+      await harness.inbox.idle();
       expect(harness.replies).toEqual([
-        { chatId: 100, messageId: 10, text: `${noteName}\nне скачано: 1 из 3 (ошибка загрузки)` },
+        {
+          chatId: 100,
+          messageId: 10,
+          text: summary(
+            wroteJournal("2026-04-02 01:15", "2026-04-02"),
+            savedClipping(noteName, "не скачано: 1 из 3 (ошибка загрузки)"),
+          ),
+        },
       ]);
     } finally {
       await harness.cleanup();
@@ -235,11 +245,16 @@ describe("inbox albums", () => {
       expect(await readFile(path.join(harness.root, `${noteName}.md`), "utf8")).toContain(
         `![[${noteName} 1.jpg]]\nМедиа не скачано (ошибка загрузки): ${source}\nМедиа не скачано (файл больше 20 МБ): ${source}\n`,
       );
+      await harness.clock.advance(3000);
+      await harness.inbox.idle();
       expect(harness.replies).toEqual([
         {
           chatId: 100,
           messageId: 10,
-          text: `${noteName}\nне скачано: 2 из 3 (файл больше 20 МБ, ошибка загрузки)`,
+          text: summary(
+            wroteJournal("2026-04-02 01:15", "2026-04-02"),
+            savedClipping(noteName, "не скачано: 2 из 3 (файл больше 20 МБ, ошибка загрузки)"),
+          ),
         },
       ]);
     } finally {
@@ -266,10 +281,7 @@ describe("inbox albums", () => {
       expect(media.calls).toEqual(["a", "b", "c"]);
       expect(await readdir(path.join(harness.root, "Attachments"))).toHaveLength(3);
       expect(await readFile(path.join(harness.root, `${noteName}.md`), "utf8")).toBe(written);
-      expect(harness.replies).toEqual([
-        { chatId: 100, messageId: 10, text: noteName },
-        { chatId: 100, messageId: 10, text: `уже сохранено: ${noteName}` },
-      ]);
+      expect(harness.replies).toEqual([]);
       expect(harness.outcomes).toEqual([
         { type: "saved", noteName, messageId: 10, class: "album" },
         { type: "duplicate", noteName, messageId: 10, class: "album" },
@@ -297,10 +309,7 @@ describe("inbox albums", () => {
       expect(media.calls).toEqual(["a", "b"]);
       expect(await readFile(path.join(harness.root, `${noteName}.md`), "utf8")).toBe(written);
       expect(written).not.toContain("comment:");
-      expect(harness.replies).toEqual([
-        { chatId: 100, messageId: 10, text: noteName },
-        { chatId: 100, messageId: 10, text: `уже сохранено: ${noteName}` },
-      ]);
+      expect(harness.replies).toEqual([]);
     } finally {
       await harness.cleanup();
     }
@@ -332,10 +341,7 @@ describe("inbox albums", () => {
           source: "https://t.me/denissexy/20",
         }),
       );
-      expect(harness.replies).toEqual([
-        { chatId: 100, messageId: 10, text: noteName },
-        { chatId: 100, messageId: 20, text: laterNote },
-      ]);
+      expect(harness.replies).toEqual([]);
     } finally {
       await harness.cleanup();
     }
@@ -362,10 +368,7 @@ describe("inbox albums", () => {
       expect(await attachment(harness.root, `${noteName} 2.jpg`)).toEqual(bytes(2));
       expect(await attachment(harness.root, `${laterNote} 1.jpg`)).toEqual(bytes(3));
       expect(await attachment(harness.root, `${laterNote} 2.jpg`)).toEqual(bytes(4));
-      expect(harness.replies).toEqual([
-        { chatId: 100, messageId: 10, text: noteName },
-        { chatId: 100, messageId: 20, text: laterNote },
-      ]);
+      expect(harness.replies).toEqual([]);
     } finally {
       await harness.cleanup();
     }
@@ -380,16 +383,13 @@ describe("inbox albums", () => {
         channelForward({ text: "мимо", postId: 40, publishedAt: laterPublished, forwardedAt }),
       );
       expect((await readdir(harness.root)).sort()).toEqual([`${laterNote}.md`]);
-      expect(harness.replies).toEqual([{ chatId: 100, messageId: 1, text: laterNote }]);
+      expect(harness.replies).toEqual([]);
 
       await harness.inbox.handle(part({ postId: 11, fileId: "b" }));
       await settle(harness);
 
       expect(await readFile(path.join(harness.root, `${noteName}.md`), "utf8")).toContain("альбом");
-      expect(harness.replies).toEqual([
-        { chatId: 100, messageId: 1, text: laterNote },
-        { chatId: 100, messageId: 10, text: noteName },
-      ]);
+      expect(harness.replies).toEqual([]);
     } finally {
       await harness.cleanup();
     }

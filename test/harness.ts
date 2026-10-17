@@ -64,6 +64,7 @@ export async function createHarness(timezone = "Europe/Moscow", media?: MediaFet
       commentWindowMs: 3000,
       albumWindowMs: 1500,
       attachmentsDir: "Attachments",
+      obsidianVault: "second-brain",
     },
   });
 
